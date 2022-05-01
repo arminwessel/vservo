@@ -7,7 +7,7 @@ import rospy
 import numpy as np
 from geometry_msgs.msg import Pose, Pose2D, Twist
 from rospy.numpy_msg import numpy_msg
-from Point2D.msg import Point2D
+from vservo.msg import Point2D
 
 class IBVSController():
     """
@@ -20,6 +20,7 @@ class IBVSController():
         """
         self._pub = rospy.Publisher("cmd_vel", Twist, queue_size=1) # create publisher
         self._sub = rospy.Subscriber("ibvs_features", numpy_msg(Point2D), self.feature_update_received) # create subscriber
+        self.current_features = np.array([[10,10],[-10,10],[10,-10],[-10,-10]])
 
     def set_target(self, feature_coordinates : np.array) -> None:
         """
@@ -66,17 +67,18 @@ class IBVSController():
         TODO include option to allow choosing between approximations of distance Z
         """
 
-        (_, b) = np.shape(self.current_features) # check if there are at least 3 features
-        if b < 3:
+        (a, b) = np.shape(self.current_features) # check if there are at least 3 features
+        if a < 3:
             raise ValueError('Feature vector is too short to calculate interaction matrix.')
+        if not b==2:
+            raise ValueError('Feature vector does not contain features with 2 dimensions.')
 
-        L = np.zeros(0,6)               # initialize empty matrix with 6 cols
+        L = np.zeros([0,6])               # initialize empty matrix with 6 cols
         Z = self.target_depth           # assume Z to be target depth
         for feature in self.current_features: 
             [x, y] = feature
-            L = np.append([[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]])
+            L = np.append(L,[[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]],axis=0)
         return L
-
 
     def calc_velocities(self, lambda_c = 1) -> Twist:
         """
@@ -110,9 +112,9 @@ if __name__ == "__main__":
     controller = IBVSController()  # create controller instance
 
     ## Set desired camera depth and desired feature coordinates as well as distance from goal before stopping
-    target_depth = 0.1
-    target = np.array([10,10,-10,10,10,-10,-10,-10])
-    tolerance = 0.5
+    controller.set_target_depth(0.2)
+    controller.set_target(np.array([[10,10],[-10,10],[10,-10],[-10,-10]]))
+    controller.set_tolerance(0.05)
     
     controller.calc_velocities()
 
