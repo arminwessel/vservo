@@ -51,6 +51,7 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   Point2D.msg
+  Point2DArray.msg
 )
 
 ## Generate services in the 'srv' folder
@@ -72,6 +73,7 @@ generate_messages(
   DEPENDENCIES
   geometry_msgs
   std_msgs
+  vservo
 )
 
 ################################################

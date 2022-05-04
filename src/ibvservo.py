@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Image Based Visual Servoing
 """
@@ -6,8 +6,7 @@ Image Based Visual Servoing
 import rospy
 import numpy as np
 from geometry_msgs.msg import Pose, Pose2D, Twist
-from rospy.numpy_msg import numpy_msg
-from vservo.msg import Point2D
+from vservo.msg import Point2D, Point2DArray
 
 class IBVSController():
     """
@@ -19,14 +18,53 @@ class IBVSController():
         Constructor
         """
         self._pub = rospy.Publisher("cmd_vel", Twist, queue_size=1) # create publisher
-        self._sub = rospy.Subscriber("ibvs_features", numpy_msg(Point2D), self.feature_update_received) # create subscriber
-        self.current_features = np.array([[10,10],[-10,10],[10,-10],[-10,-10]])
+        self._sub = rospy.Subscriber("ibvs_features", Point2DArray, self.feature_update_received) # create subscriber
+        _array_current_fearures =np.array([[-11,-11],[-11,11],[11,11],[11,-11]])
+        self.current_features = self.conv_nparray_2_Point2DArray(_array_current_fearures)
 
-    def set_target(self, feature_coordinates : np.array) -> None:
+
+    def set_target(self, feature_coordinates : Point2DArray) -> None:
         """
         Set the desired coordinates of the features of the target
         """
+        try:
+            _points = feature_coordinates.points
+            _length = feature_coordinates.length
+        except AttributeError:
+            rospy.logerr('Argument passed to set_target does not have expected Attributes of type Point2DArray')
+            return
+        if _length < 3:
+            raise ValueError('Target length is less than 3, the minimum required is 3')
         self.target = feature_coordinates
+    
+    def conv_Point2DArray_2_nparray(self, data : Point2DArray) -> np.array:
+        try:
+            _points = data.points
+            _length = data.length
+        except AttributeError:
+            rospy.logerr('Argument passed to set_target does not have expected Attributes of type Point2DArray')
+            return
+        
+        out = np.zeros([0,2])               # initialize empty matrix with 2 cols
+        for point in _points:
+            out=np.append(out,[[point.x, point.y]])
+        return out
+
+    def conv_nparray_2_Point2DArray(self, data: np.array) -> Point2DArray:
+        out = Point2DArray()
+        for idx, row in enumerate(data): # idx is indexing the elements in the loop starting with 0
+            [_x,_y] = row
+            point = Point2D()
+            point.x ,point.y =_x, _y
+            out.points.append(point)
+        out.length=idx+1 # final value of idx is last index, add one to get number of iterations on for loop
+        return out
+    
+    def calc_error(self) -> np.array:
+        _array_current = self.conv_Point2DArray_2_nparray(self.current_features)
+        _array_target = self.conv_Point2DArray_2_nparray(self.target)
+        return _array_target-_array_current
+
 
     def set_target_depth(self, target_depth : float) -> None:
         """
@@ -52,7 +90,7 @@ class IBVSController():
     #     """
     #     pass
 
-    def feature_update_received(self, feature_coordinates : np.array) -> None:
+    def feature_update_received(self, feature_coordinates : Point2DArray) -> None:
         """
         Callback function for new features from camera
         """
@@ -67,16 +105,15 @@ class IBVSController():
         TODO include option to allow choosing between approximations of distance Z
         """
 
-        (a, b) = np.shape(self.current_features) # check if there are at least 3 features
-        if a < 3:
+        # check if there are at least 3 features
+        if self.current_features.length < 3:
             raise ValueError('Feature vector is too short to calculate interaction matrix.')
-        if not b==2:
-            raise ValueError('Feature vector does not contain features with 2 dimensions.')
 
         L = np.zeros([0,6])               # initialize empty matrix with 6 cols
         Z = self.target_depth           # assume Z to be target depth
-        for feature in self.current_features: 
-            [x, y] = feature
+
+        for point in self.current_features.points: 
+            x, y = point.x, point.y
             L = np.append(L,[[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]],axis=0)
         return L
 
@@ -89,7 +126,7 @@ class IBVSController():
         _L = self.calc_interaction_matrix()         
         _L_inv = np.linalg.pinv(_L)
 
-        _e = self.current_features-self.target      # calc error [[dx1, dy1],  [dx2, dy2],  [dx3, dy3]]
+        _e = self.calc_error()     # calc error [[dx1, dy1],  [dx2, dy2],  [dx3, dy3]]
         _e_flat = _e.flatten()                           # flaten error [dx1, dy1, dx2, dy2, dx3, dy3]
 
         _vel = - lambda_c * np.dot(_L_inv, _e_flat) # calculate velocity command vector
@@ -109,14 +146,14 @@ class IBVSController():
 # Main function.
 if __name__ == "__main__":
     rospy.init_node('vservo_node') # init ROS node named vservo_node
+    rospy.loginfo('#Node vservo_node running#')
     controller = IBVSController()  # create controller instance
 
     ## Set desired camera depth and desired feature coordinates as well as distance from goal before stopping
     controller.set_target_depth(0.2)
-    controller.set_target(np.array([[10,10],[-10,10],[10,-10],[-10,-10]]))
+    targetarray = np.array([[-10,-10],[-10,10],[10,10],[10,-10]])
+    controller.set_target(controller.conv_nparray_2_Point2DArray(targetarray))
     controller.set_tolerance(0.05)
-    
-    controller.calc_velocities()
 
     
     rospy.spin()
