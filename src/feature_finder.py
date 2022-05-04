@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Find features in image
+Node to simulate finding features in image
 """
 import rospy
 import numpy as np
 from std_msgs.msg import Int8
 from vservo.msg import Point2D, Point2DArray
-from ibvservo import *
 
-class FeatureFinder():
+class RandomFeatureGenerator():
     """
     Simulation for features found in camera image
     using random integers
@@ -57,8 +56,8 @@ class FeatureFinder():
 
 # Main function.
 if __name__ == "__main__":
-    rospy.init_node('feature_finder') # init ROS node named feature_finder
-    rospy.loginfo('#Node feature_finder running#')
-    featurefinder = FeatureFinder()  # create instance
+    rospy.init_node('random_feature_generator') # init ROS node named random_feature_generator
+    rospy.loginfo('#Node random_feature_generator running#')
+    featuregen = RandomFeatureGenerator()  # create instance
     
     rospy.spin()
