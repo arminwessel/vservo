@@ -3,7 +3,6 @@ from aruco_dict import ARUCO_DICT
 from pathlib import Path
 import numpy as np
 
-
 _type = "DICT_5X5_50"
 arucoDict = cv2.aruco.Dictionary_get(ARUCO_DICT[_type])
 
