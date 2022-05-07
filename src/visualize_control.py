@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Node to Visualize controller
 """
@@ -22,7 +22,7 @@ class ControlVisualizer():
         """
         Constructor
         """
-        self._sub = rospy.Subscriber("usb_cam/image_raw", Image, self.image_received)
+        self._sub = rospy.Subscriber("camera_node/image_raw", Image, self.image_received)
         self._sub2 = rospy.Subscriber("ibvs_target", Point2DArray, self.target_update_received)
         self._sub3 = rospy.Subscriber("ibvs_features", Point2DArray, self.feature_update_received) 
         # self._sub4 = rospy.Subscriber("cmd_vel",Twist, self.command_update_received)
@@ -48,28 +48,34 @@ class ControlVisualizer():
         self.overlay_image()
     
     def overlay_image(self) -> None:
-        # if not hasattr(self, 'frame'):
-        #     return
         # overlay a red box where the target is 
         if hasattr(self, 'target_points'):
-            cv2.polylines(self.frame, 
-                [self.target_points],
-                isClosed = True,
-                color = (255,0,0), # red
-                thickness = 2)
-        # else: 
-        #     rospy.loginfo('No target advertised')
-        
-        # overlay green box on current feature
+            if len(self.target_points)>0:
+                cv2.polylines(self.frame, 
+                    [self.target_points],
+                    isClosed = True,
+                    color = (255,0,0), # red
+                    thickness = 2)
+
+        # overlay a green box where the feature is 
         if hasattr(self, 'feature_points'):
-            cv2.polylines(self.frame, 
-                [self.feature_points],
-                isClosed = True,
-                color = (0,255,0), # green
-                thickness = 2)
-        # else: 
-        #     rospy.loginfo('No feature advertised')
+            if len(self.feature_points)>0:
+                cv2.polylines(self.frame, 
+                    [self.feature_points],
+                    isClosed = True,
+                    color = (0,255,0), # green
+                    thickness = 2)
         
+        # overlay arrows
+        if hasattr(self, 'feature_points') & hasattr(self, 'target_points'):
+            if len(self.feature_points)>0 and len(self.target_points)>0:
+                for arrowpoints in np.concatenate((self.feature_points, self.target_points), axis=1):
+                    cv2.arrowedLine(self.frame,
+                            (arrowpoints[0], arrowpoints[1]),
+                            (arrowpoints[2], arrowpoints[3]),
+                            color = (255,215,0), # blue, 
+                            thickness = 1)
+
         # publish
         self._pub.publish(self.bridge.cv2_to_imgmsg(self.frame, encoding="rgb8"))
 
