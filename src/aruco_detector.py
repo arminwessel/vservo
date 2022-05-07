@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Node to find corners of ArUcCo marker
 """
@@ -21,7 +21,7 @@ class ArucoDetector():
         Constructor
         """
         self._pub = rospy.Publisher("ibvs_features", Point2DArray, queue_size=1) # create publisher
-        self._sub = rospy.Subscriber("usb_cam/image_raw", Image, self.image_received) # create subscriber
+        self._sub = rospy.Subscriber("camera_node/image_raw", Image, self.image_received) # create subscriber
         self._type = "DICT_5X5_50"
         self.bridge = CvBridge()
         self.arucoDict = cv2.aruco.Dictionary_get(ARUCO_DICT[self._type])
@@ -35,11 +35,15 @@ class ArucoDetector():
     def detect_markers(self, frame) -> None:
         (corners, ids, rejected) = cv2.aruco.detectMarkers(frame, self.arucoDict)     
         
-        # check if exactly one marker was detected
+        # check if no marker was detected
         if ids == None:
+            empty = Point2DArray()
+            self._pub.publish(empty) # publish empty Point2D message
             return
         elif len(ids)>1:
-            rospy.loginfo('More than one aruco tag detected')
+            empty = Point2DArray()
+            self._pub.publish(empty) # publish empty Point2D message
+            rospy.logwarn('More than one aruco tag detected')
             return
 
         # compose and publish ROS message to /ibvs_features
