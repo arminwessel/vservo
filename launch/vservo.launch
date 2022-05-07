@@ -1,0 +1,21 @@
+<launch>
+  <arg name="video_device" default="/dev/video0" />
+  <arg name="image_width" default="640" />
+  <arg name="image_height" default="480" />
+  
+  
+
+  <node name="ibvservo_node" pkg="vservo" type="ibvservo" />
+  <node name="detector_node" pkg="vservo" type="aruco_detector" />
+  <node name="visualizer_node" pkg="vservo" type="visualize_control" />
+  
+  <node name="camera_node" pkg="usb_cam" type="usb_cam_node" />
+  <param name="video_device" value="$(arg video_device)" />
+  <param name="image_width" value="$(arg image_width)" />
+  <param name="image_height" value="$(arg image_height)"/>
+  <param name="pixel_format" value="mjpeg" />
+  <param name="camera_frame_id" value="usb_cam" />
+  <param name="io_method" value="mmap"/>
+  
+  <node name="rqt_gui" pkg="rqt_gui" type="rqt_gui" />
+</launch>
