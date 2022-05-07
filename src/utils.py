@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Utility Functions
 """
@@ -9,7 +9,7 @@ import rospy
 
 def conv_Point2DArray_2_nparray(data : Point2DArray) -> np.array:
     if not hasattr(data,'points'):
-        return
+        return None
     _points = data.points
 
     out = np.zeros([0,2])               # initialize empty matrix with 2 cols
@@ -20,10 +20,23 @@ def conv_Point2DArray_2_nparray(data : Point2DArray) -> np.array:
 
 def conv_nparray_2_Point2DArray(data: np.array) -> Point2DArray:
     out = Point2DArray()
+    idx = None
     for idx, row in enumerate(data): # idx is indexing the elements in the loop starting with 0
         [_x,_y] = row
         point = Point2D()
         point.x ,point.y =_x, _y
         out.points.append(point)
-    out.length=idx+1 # final value of idx is last index, add one to get number of iterations on for loop
+    if idx == None:
+        out.length=None
+    else:
+        out.length=idx+1 # final value of idx is last index, add one to get number of iterations on for loop
     return out
+
+def tf_cc(coordinates : np.array) -> np.array:
+    """
+    Transform Camera Center Coordinates
+    """
+    if not np.shape(coordinates) == (4,2):
+        return np.zeros((0,2))
+    width, height = 640, 480 # x=0..640, y=0..480
+    return np.subtract(np.repeat([[320,240]],4, axis=0), coordinates)
