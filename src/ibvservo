@@ -6,8 +6,8 @@ Image Based Visual Servoing
 from attr import has
 import rospy
 import numpy as np
-from geometry_msgs.msg import Pose, Pose2D, Twist
-from vservo.msg import Point2D, Point2DArray
+from geometry_msgs.msg import Twist
+from vservo.msg import  Point2DArray
 import utils
 
 class IBVSController():
@@ -22,7 +22,9 @@ class IBVSController():
         self._pub = rospy.Publisher("cmd_vel", Twist, queue_size=1) # create publisher
         self._pub2 = rospy.Publisher("ibvs_target", Point2DArray, queue_size=1) # create publisher
         self._pub3 = rospy.Publisher("control_error", Point2DArray, queue_size=1) # create publisher
+
         self._sub = rospy.Subscriber("ibvs_features", Point2DArray, self.feature_update_received) # create subscriber
+        
         center_target = utils.tf_cc(np.array([[40,40],[-40,40],[-40,-40],[40,-40]]))
         self.set_target(utils.conv_nparray_2_Point2DArray(center_target))
 
@@ -111,12 +113,12 @@ class IBVSController():
         if not hasattr(self, 'L'): # If no interaction matrix is defined, set command velocity to all zeros
             _vel=np.zeros(6)
         else:
-            _L_inv = np.linalg.pinv(self.L)
+            self.L_inv = np.linalg.pinv(self.L)
 
             _e = self.calc_error()     # calc error [[dx1, dy1],  [dx2, dy2],  [dx3, dy3]]
             _e_flat = _e.flatten()                           # flaten error [dx1, dy1, dx2, dy2, dx3, dy3]
 
-            _vel = - lambda_c * np.dot(_L_inv, _e_flat) # calculate velocity command vector
+            _vel = - lambda_c * np.dot(self.L_inv, _e_flat) # calculate velocity command vector
 
         # pack the Twist message
         velocity_cmd.linear.x = _vel[0]

@@ -36,11 +36,12 @@ class ArucoDetector():
         (corners, ids, rejected) = cv2.aruco.detectMarkers(frame, self.arucoDict)     
         
         # check if no marker was detected
-        if ids == None:
+        if len(corners) == 0:
             empty = Point2DArray()
             self._pub.publish(empty) # publish empty Point2D message
             return
-        elif len(ids)>1:
+        # check if multiple markers were detected
+        elif len(corners)>1:
             empty = Point2DArray()
             self._pub.publish(empty) # publish empty Point2D message
             rospy.logwarn('More than one aruco tag detected')
@@ -50,7 +51,6 @@ class ArucoDetector():
         corners_array = corners[0].reshape((4, 2)) # convert one element tuple to element, then reshape array
         detected_corners = utils.conv_nparray_2_Point2DArray(corners_array.astype(int))
         self._pub.publish(detected_corners)
-
 
 
 # Main function.
