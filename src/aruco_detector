@@ -5,11 +5,13 @@ Node to find corners of ArUcCo marker
 import rospy
 import numpy as np
 from sensor_msgs.msg import Image
+from geometry_msgs.msg import Point, Quaternion, Pose
 from vservo.msg import Point2D, Point2DArray
 import cv2
 from aruco_dict import ARUCO_DICT
 from cv_bridge import CvBridge
 import utils
+from scipy.spatial.transform import Rotation as R
 
 class ArucoDetector():
     """
@@ -21,16 +23,29 @@ class ArucoDetector():
         Constructor
         """
         self._pub = rospy.Publisher("ibvs_features", Point2DArray, queue_size=1) # create publisher
+        self._pub2 = rospy.Publisher("estimated_pose", Pose, queue_size=1) # create publisher
         self._sub = rospy.Subscriber("camera_node/image_raw", Image, self.image_received) # create subscriber
         self._type = "DICT_5X5_50"
         self.bridge = CvBridge()
         self.arucoDict = cv2.aruco.Dictionary_get(ARUCO_DICT[self._type])
         self.arucoParams = cv2.aruco.DetectorParameters_create()
 
+        self.aruco_length = float(rospy.get_param("aruco_marker_length"))
+
+        _camera_matrix_dict= rospy.get_param("camera_matrix")
+        _camera_matrix = np.array(_camera_matrix_dict['data'])
+        self.camera_matrix = np.reshape(_camera_matrix, (_camera_matrix_dict['rows'], _camera_matrix_dict['cols']))
+
+        _camera_distortion_dict= rospy.get_param("distortion_coefficients")
+        _camera_distortion = np.array(_camera_distortion_dict['data'])
+        self.camera_distortion = np.reshape(_camera_distortion, (_camera_distortion_dict['rows'], _camera_distortion_dict['cols']))
+        return
+
 
     def image_received(self, image_message : Image) -> None:
         cv_image = self.bridge.imgmsg_to_cv2(image_message, desired_encoding='passthrough')
         self.detect_markers(cv_image)
+        self.estimate_pose()
 
     def detect_markers(self, frame) -> None:
         (corners, ids, rejected) = cv2.aruco.detectMarkers(frame, self.arucoDict)     
@@ -47,10 +62,44 @@ class ArucoDetector():
             rospy.logwarn('More than one aruco tag detected')
             return
 
+        # save corners for use in pose estimation
+        self.corners = corners
+
         # compose and publish ROS message to /ibvs_features
         corners_array = corners[0].reshape((4, 2)) # convert one element tuple to element, then reshape array
         detected_corners = utils.conv_nparray_2_Point2DArray(corners_array.astype(int))
         self._pub.publish(detected_corners)
+    
+    def estimate_pose(self):
+        """
+        Use the built-in pose estimation of opencv to estimate the pose of the aruco marker found by detect_markers
+        """
+        if not hasattr(self, 'corners'): 
+            return
+
+        rvecs, tvecs, _objPoints = cv2.aruco.estimatePoseSingleMarkers(self.corners[0], 
+            self.aruco_length, 
+            self.camera_matrix, 
+            self.camera_distortion)
+        
+        
+        # initiate geometry_msgs objects
+        trans = Point()
+        rot = Quaternion()
+        pose = Pose()
+
+        # create Point representing translation of estimated pose
+        [trans.x, trans.y, trans.z] = tvecs[0][0]
+
+        # create Quaternion representing rotation of estimated pose
+        _r = R.from_rotvec(rvecs[0][0]) # Rotation object from SciPy
+        [rot.x, rot.y, rot.z, rot.w] = R.as_quat(_r)
+
+        # compose and publish Pose object
+        pose.position=trans
+        pose.orientation=rot
+        
+        self._pub2.publish(pose)
 
 
 # Main function.

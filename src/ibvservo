@@ -6,7 +6,7 @@ Image Based Visual Servoing
 from attr import has
 import rospy
 import numpy as np
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Pose
 from vservo.msg import  Point2DArray
 import utils
 
@@ -24,17 +24,27 @@ class IBVSController():
         self._pub3 = rospy.Publisher("control_error", Point2DArray, queue_size=1) # create publisher
 
         self._sub = rospy.Subscriber("ibvs_features", Point2DArray, self.feature_update_received) # create subscriber
+        self._sub2 = rospy.Subscriber("estimated_pose", Pose, self.update_pose) # create subscriber
         
-        center_target = utils.tf_cc(np.array([[40,40],[-40,40],[-40,-40],[40,-40]]))
-        self.set_target(utils.conv_nparray_2_Point2DArray(center_target))
 
-    def set_target(self, target_coordinates : Point2DArray) -> None:
-        if target_coordinates == None:
-            return
-        self.target = target_coordinates
+        _camera_matrix_dict= rospy.get_param("camera_matrix")
+        _camera_matrix = np.array(_camera_matrix_dict['data'])
+        self.camera_matrix = np.reshape(_camera_matrix, (_camera_matrix_dict['rows'], _camera_matrix_dict['cols']))
+        
+        _target_str = rospy.get_param("target")
+        _target = np.reshape(np.fromstring(_target_str, dtype=int, sep=','),(4,2))
+        self.target=utils.conv_nparray_2_Point2DArray(utils.conv_norm_2_pix(_target, self.camera_matrix))
 
-    
+        _target_depth_str = rospy.get_param("target_depth")
+        _target_depth = float(_target_depth_str)
+        self.target_depth=_target_depth
+
+        
+
     def calc_error(self) -> np.array:
+        """
+        Calculate error in pixel coordinates, publish current error
+        """
         if (not hasattr(self.current_features,'points')) or (not hasattr(self.target, 'points')):
             return np.zeros((4,2)) # return zero error if target or features are not defined
         if len(self.current_features.points) == 0:
@@ -46,60 +56,95 @@ class IBVSController():
         return error
 
 
-    def set_target_depth(self, target_depth : float) -> None:
+    def update_pose(self, pose : Pose) -> None:
         """
-        Set the desired depth (Z) of the target
+        Set the Pose determined by pose estimation
         """
-        self.target_depth = target_depth
+        self.pose = pose
 
-    def set_tolerance(self, tolerance) -> None:
-        """
-        Set the tolerance below which the error is acceptable
-        """
-        self.tolerance = tolerance
-
-    # def get_current_position(self) -> Pose:
-    #     """
-    #     get current 2D coordinates of the feature from camera. In case of IBVS the Pose contains a 2D
-    #     """
-    #     pass
-
-    # def get_current_depth(self) -> float:
-    #     """
-    #     Return measured, observed or assumed depth (Z) of target
-    #     """
-    #     pass
 
     def feature_update_received(self, feature_coordinates : Point2DArray) -> None:
         """
         Callback function for new features from camera
+        Initiate the calculation of the velocity command
         """
         self.current_features = feature_coordinates # save current feature data 
         self._pub.publish(self.calc_velocities())   # calculate new velocities and publish the result 
-        self._pub2.publish(self.target) # publish the current target
+        self._pub2.publish(self.target) # Publich target too in order to visualize it
         
 
     def get_Z(self) -> float:
-        if hasattr(self, 'target_depth'):
-            return self.target_depth           # assume Z to be target depth
+        """
+        Return depth (distance on optical axis from camera to marker) in case pose estimation is available.
+        If no estimate is available return target depth
+        """
+        if hasattr(self, 'pose'):
+            return self.pose.position.z
+        # elif hasattr(self, 'target_depth'):
+        #     rospy.logwarn('Assumed target_depth for feature distance Z')
+        #     return self.target_depth           # assume Z to be target depth
         else:
-            rospy.logwarn('Assumed 0.1 for feature distance Z')
-            return 0.1 
+            return None
         
     def update_interaction_matrix(self) -> None:
         """
-        Calculate the interaction matrix L given the positions of 
-        TODO include option to allow choosing between approximations of distance Z
+        Calculate the interaction matrix L with different methods depending on ROS parameter
         """
+        L_type=rospy.get_param("L_type")
+        if L_type == "TARGET_POINT": 
+            # approximate L by using only the normalized image coordinates of the target
+            self.L = self.calc_L_matrix_current()
+        elif L_type == "CURRENT_POINT": 
+            # approximate L by using only the normalized image coordinates of the current feature
+            self.L = self.calc_L_matrix_target()
+        elif L_type == "MIXED": 
+            # approximate L by averaging L of current and target feature
+            L1 = self.calc_L_matrix_current()
+            L2 = self.calc_L_matrix_target()
+            if np.all(L1, L2) == None: # if any of the two variables evaluate to None the method returns None
+                self.L = None
+                return
+            self.L = np.multiply(0.5, np.add(L1, L2))
+        else:
+            rospy.logerr("No method or unknown method specified for calculating L matrix in update_interaction_matrix")
 
-        if hasattr(self.current_features, 'points'):
+
+    def calc_L_matrix_current(self) -> np.array:
+        # approximate L by using only the normalized image coordinates of the current feature
+        if hasattr(self.current_features, 'points'): # check if features are available
             if len(self.current_features.points)>0:
                 L = np.zeros([0,6])               # initialize empty matrix with 6 cols
                 Z = self.get_Z()
-                for point in self.current_features.points: 
-                    x, y = point.x, point.y
+                if Z == None:
+                    rospy.logwarn("Distance Z is None")
+                    return
+                _array_current = utils.conv_Point2DArray_2_nparray(self.current_features)
+                normalized_points = utils.conv_pix_2_norm(_array_current, self.camera_matrix)
+                for point in normalized_points: 
+                    [x, y] = point
                     L = np.append(L,[[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]],axis=0)
-                self.L = L
+                return L
+            
+        rospy.logwarn("L could not be updated because current features are missing")
+    
+    def calc_L_matrix_target(self) -> np.array:
+        # approximate L by using only the normalized image coordinates of the target feature
+        if hasattr(self.target, 'points'): # check if features are available
+            if len(self.target.points)>0:
+                L = np.zeros([0,6])               # initialize empty matrix with 6 cols
+                Z = self.get_Z()
+                if Z == None:
+                    rospy.logwarn("Distance Z is None")
+                    return
+                _array_target = utils.conv_Point2DArray_2_nparray(self.target)
+                normalized_points = utils.conv_pix_2_norm(_array_target, self.camera_matrix)
+                for point in normalized_points: 
+                    [x, y] = point
+                    L = np.append(L,[[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]],axis=0)
+                return L
+            
+        rospy.logwarn("L could not be updated because target features are missing")
+        
 
 
     def calc_velocities(self, lambda_c = 1) -> Twist:
@@ -110,13 +155,18 @@ class IBVSController():
 
         self.update_interaction_matrix()
 
-        if not hasattr(self, 'L'): # If no interaction matrix is defined, set command velocity to all zeros
+        if np.all(self.L) == None: # If no interaction matrix is defined, set command velocity to all zeros
             _vel=np.zeros(6)
+            rospy.logwarn("Interaction Matrix is None, cmd_vel set to zero")
         else:
             self.L_inv = np.linalg.pinv(self.L)
 
-            _e = self.calc_error()     # calc error [[dx1, dy1],  [dx2, dy2],  [dx3, dy3]]
-            _e_flat = _e.flatten()                           # flaten error [dx1, dy1, dx2, dy2, dx3, dy3]
+            _f_x = self.camera_matrix[0,0]
+            _f_y = self.camera_matrix[1,1]
+
+            _e = self.calc_error()     # calculate error in pixel coordinates [[du1, dv1],  [du2, dv2],  [du3, dv3], [du4, dv4]]
+            _e = np.divide(_e, np.repeat([[_f_x, _f_y]], 4, axis=0)) # calculate error in normalized image plane
+            _e_flat = _e.flatten()                           # flaten error [dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4]
 
             _vel = - lambda_c * np.dot(self.L_inv, _e_flat) # calculate velocity command vector
 
@@ -137,10 +187,5 @@ if __name__ == "__main__":
     rospy.init_node('vservo_node') # init ROS node named vservo_node
     rospy.loginfo('#Node vservo_node running#')
     controller = IBVSController()  # create controller instance
-
-    ## Set desired camera depth and desired feature coordinates as well as distance from goal before stopping
-    controller.set_target_depth(0.2)
-    controller.set_tolerance(0.05)
-
     
     rospy.spin()
