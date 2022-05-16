@@ -1,22 +1,27 @@
 <launch>
-  <arg name="video_device" default="/dev/video0" />
-  <arg name="image_width" default="640" />
-  <arg name="image_height" default="480" />
-  
-  
+<!--Arguments-->
+  <arg name="video_device" default="/dev/video0" /> <!--Argument can be set in roslaunch, if not default is used-->
+  <arg name="L_type" default="CURRENT_POINT" /> <!--Argument can be set in roslaunch, if not default is used-->
 
-  <node name="ibvservo_node" pkg="vservo" type="ibvservo" required="true"/>
-  <node name="detector_node" pkg="vservo" type="aruco_detector" />
-  <node name="visualizer_node" pkg="vservo" type="visualize_control" />
-  
-  <node name="camera_node" pkg="usb_cam" type="usb_cam_node" />
-  <param name="video_device" value="$(arg video_device)" />
-  <param name="image_width" value="$(arg image_width)" />
-  <param name="image_height" value="$(arg image_height)"/>
+<!--Parameters-->
+  <rosparam command="load" file="$(find vservo)/config/camera_param.yaml" /> <!--Camera Parameters from Calibration-->
+
+  <param name="video_device" value="$(arg video_device)" /> <!--Use passed argument (or default as param)-->
   <param name="pixel_format" value="mjpeg" />
   <param name="camera_frame_id" value="usb_cam" />
   <param name="io_method" value="mmap"/>
-  <!--<param name="framerate" value="40"/>-->
+  <param name="aruco_marker_length" value="0.08"/>
+  <param name="L_type" value="$(arg L_type)"/> <!--Use passed argument (or default as param)-->
+
+  <param name="target" value="40,40,-40,40,-40,-40,40,-40"/> <!--Array as string, normalized image coordinates-->
+  <param name="target_depth" value="0.65"/> 
   
+<!--Nodes-->
+  <node name="ibvservo_node" pkg="vservo" type="ibvservo" required="true"/>
+  <node name="detector_node" pkg="vservo" type="aruco_detector" />
+  <node name="visualizer_node" pkg="vservo" type="visualize_control" />
+  <node name="camera_node" pkg="usb_cam" type="usb_cam_node" />
+
+<!--RQT for visualization-->
   <node name="rqt_gui" pkg="rqt_gui" type="rqt_gui" />
 </launch>
