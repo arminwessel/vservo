@@ -28,7 +28,10 @@ class ControlVisualizer():
         self._sub4 = rospy.Subscriber("cmd_vel",Twist, self.command_update_received)
         self._pub = rospy.Publisher("image_control_overlay", Image, queue_size=20)
         self.bridge = CvBridge()
-        return
+
+        _camera_matrix_dict=_target_str = rospy.get_param("camera_matrix")
+        _camera_matrix = np.array(_camera_matrix_dict['data'])
+        self.camera_matrix = np.reshape(_camera_matrix, (_camera_matrix_dict['rows'], _camera_matrix_dict['cols']))
 
     def target_update_received(self, data) -> None:
         self.target_points = utils.conv_Point2DArray_2_nparray(data)
@@ -89,33 +92,37 @@ class ControlVisualizer():
             #                 (0,70),
             #                 color = (0,0,0), # black
             #                 thickness = 2)
+            _c_u = int(self.camera_matrix[0,2])
+            _c_v = int(self.camera_matrix[1,2])
+            _f_x = int(self.camera_matrix[0,0])
+            _f_y = int(self.camera_matrix[1,1])
             font = cv2.FONT_HERSHEY_SIMPLEX
             cv2.arrowedLine(self.frame,
-                            (320, 240),
-                            (390, 240),
+                            (_c_u, _c_v),
+                            (_c_u+50, _c_v),
                             color = (0,0,0), # black
                             thickness = 2)
-            cv2.putText(self.frame, 'x', (390,240), font, 1, (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(self.frame, 'x', (_c_u+55, _c_v), font, 1, (0, 0, 0), 2, cv2.LINE_AA)
             cv2.arrowedLine(self.frame,
-                            (320, 240),
-                            (320,310),
+                            (_c_u, _c_v),
+                            (_c_u, _c_v+50),
                             color = (0,0,0), # black
                             thickness = 2)
-            cv2.putText(self.frame, 'y', (325,310), font, 1, (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(self.frame, 'y', (_c_u+10, _c_v+60), font, 1, (0, 0, 0), 2, cv2.LINE_AA)
 
             # control effort in x,y
-            if hasattr(self, 'feature_points') and hasattr(self, 'target_points') and len(self.feature_points)>0 and len(self.target_points)>0:
-                c = np.array([self.cmd_vel.linear.x, self.cmd_vel.linear.y])
-                c = 50* c / np.linalg.norm(c) # normalize vector to length 50
-                c = c.astype(int)
-                feature_center = np.mean(self.feature_points, axis=0)
-                feature_center = feature_center.astype(int)
+            # if hasattr(self, 'feature_points') and hasattr(self, 'target_points') and len(self.feature_points)>0 and len(self.target_points)>0:
+            #     c = np.array([self.cmd_vel.linear.x, self.cmd_vel.linear.y])
+            #     c = 50* c / np.linalg.norm(c) # normalize vector to length 50
+            #     c = c.astype(int)
+            #     feature_center = np.mean(self.feature_points, axis=0)
+            #     feature_center = feature_center.astype(int)
 
-                cv2.arrowedLine(self.frame,
-                                (feature_center[0], feature_center[1]),
-                                (feature_center[0]+c[0], feature_center[1]+c[1]),
-                                color = (255,215,0), # gold
-                                thickness = 2)
+            #     cv2.arrowedLine(self.frame,
+            #                     (feature_center[0], feature_center[1]),
+            #                     (feature_center[0]+c[0], feature_center[1]+c[1]),
+            #                     color = (255,215,0), # gold
+            #                     thickness = 2)
         # publish
         self._pub.publish(self.bridge.cv2_to_imgmsg(self.frame, encoding="rgb8"))
 
