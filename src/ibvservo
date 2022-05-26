@@ -8,6 +8,7 @@ import rospy
 import numpy as np
 from geometry_msgs.msg import Twist, Pose
 from vservo.msg import  Point2DArray
+from std_msgs.msg import Float32
 import utils
 
 class IBVSController():
@@ -191,14 +192,18 @@ class IBVSController():
 if __name__ == "__main__":
     rospy.init_node('ibvservo_node') # init ROS node named ibvservo_node
     rospy.loginfo('#Node vservo_node running#')
+
     controller = IBVSController()  # create controller instance
-    controller_rate = rospy.Rate(10) # 10hz
+
+    controller_rate = rospy.Rate(100) # 10hz
+    pub_timeslot = rospy.Publisher("timeslot_usage", Float32, queue_size=1) # create publisher
     while not rospy.is_shutdown():
-        #t0 = rospy.get_time()
+        t0 = rospy.get_time()
         cmd_vel = controller.calc_velocities()
         controller._pub.publish(cmd_vel)   # calculate new velocities and publish the result 
-        #t1 = rospy.get_time()
+        t1 = rospy.get_time()
         controller_rate.sleep()
-        #t2 = rospy.get_time()
+        t2 = rospy.get_time()
         #print('timeslot usage: {} %'.format(100*(t1-t0)/(t2-t0)))
+        pub_timeslot.publish(100*(t1-t0)/(t2-t0))
     
