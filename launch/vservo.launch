@@ -1,7 +1,7 @@
 <launch>
 <!--Arguments-->
   <arg name="video_device" default="/dev/video0" /> <!--Argument can be set in roslaunch, if not default is used-->
-  <arg name="L_type" default="CURRENT_POINT" /> <!--Argument can be set in roslaunch, if not default is used-->
+  <arg name="L_type" default="MIXED" /> <!--Argument can be set in roslaunch, if not default is used-->
 
 <!--Parameters-->
   <rosparam command="load" file="$(find vservo)/config/camera_param.yaml" /> <!--Camera Parameters from Calibration-->
@@ -14,7 +14,6 @@
   <param name="L_type" value="$(arg L_type)"/> <!--Use passed argument (or default as param)-->
 
   <param name="target" value="40,40,-40,40,-40,-40,40,-40"/> <!--Array as string, normalized image coordinates-->
-  <param name="target_depth" value="0.65"/> 
 
   <param name="lambda_c" value="0.05"/> 
 <!--Nodes-->
