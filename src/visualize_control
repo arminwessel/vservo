@@ -45,7 +45,6 @@ class ControlVisualizer():
         self.bridge = CvBridge() # bridge to convert between ROS image format and opencv image format
 
         self._sub = rospy.Subscriber("camera_node/image_raw", Image, self.image_received)
-        self._sub2 = rospy.Subscriber("ibvs_target", Point2DArray, self.target_update_received)
         self._sub3 = rospy.Subscriber("ibvs_features", Point2DArray, self.feature_update_received) 
         self._sub4 = rospy.Subscriber("cmd_vel",Twist, self.command_update_received)
         self._sub5 = rospy.Subscriber("estimated_pose",Pose, self.pose_update_received)
@@ -54,13 +53,11 @@ class ControlVisualizer():
 
         self._serv = rospy.Service("generate_plot", Trigger, self.dataLogger.plot_system_behavior)
 
-        
+        _target_str = rospy.get_param("target")
+        _target = np.reshape(np.fromstring(_target_str, dtype=int, sep=','),(4,2))
+        self.target_points=utils.conv_norm_2_pix(_target, self.camera_matrix)
 
         
-
-    def target_update_received(self, data) -> None:
-        self.target_points = utils.conv_Point2DArray_2_nparray(data)
-        return
 
     def feature_update_received(self, data) -> None:
         self.feature_points = utils.conv_Point2DArray_2_nparray(data)
