@@ -31,7 +31,7 @@ class ControlVisualizer():
         Constructor
         """
 
-        _camera_matrix_dict=_target_str = rospy.get_param("camera_matrix")
+        _camera_matrix_dict = rospy.get_param("camera_matrix")
         _camera_matrix = np.array(_camera_matrix_dict['data'])
         self.camera_matrix = np.reshape(_camera_matrix, (_camera_matrix_dict['rows'], _camera_matrix_dict['cols']))
 
@@ -102,7 +102,7 @@ class ControlVisualizer():
     
     def overlay_image(self, frame) -> None:
         # overlay a red box where the target is 
-        if np.any(self.target_points):
+        if not np.array(self.target_points==None).any():
             cv2.polylines(frame, 
                 [self.target_points],
                 isClosed = True,
@@ -110,7 +110,7 @@ class ControlVisualizer():
                 thickness = 3)
 
         # overlay a green box where the feature is 
-        if np.any(self.feature_points):
+        if not np.array(self.feature_points==None).any():
             cv2.polylines(frame, 
                 [self.feature_points],
                 isClosed = True,
@@ -118,12 +118,11 @@ class ControlVisualizer():
                 thickness = 3)
         
         # overlay arrows
-        if np.any(self.feature_points) and np.any(self.target_points):
+        if not np.array(self.feature_points==None).any() and not np.array(self.target_points==None).any():
             for arrowpoints in np.concatenate((self.feature_points, self.target_points), axis=1):
                 cv2.arrowedLine(frame,
                         (arrowpoints[0], arrowpoints[1]),
                         (arrowpoints[2], arrowpoints[3]),
-                        # color = (255,215,0), # gold
                         color = (66,117,245), # blue
                         thickness = 2)
 
@@ -183,12 +182,16 @@ class ControlDataLogger():
         plt.tight_layout()
         fig = plt.figure(figsize=(7,7), facecolor='#FFFFFF')
         ax_cornerpoints = fig.add_subplot(2,2,1)
-        ax_controlefforts = fig.add_subplot(2,2,2)
-        ax_poses = fig.add_subplot(2,2,3,projection='3d')
-        ax_cornerpoints.set_facecolor('#DEDEDE') # light gray
-        ax_cornerpoints.set_aspect('equal', 'box') # equal aspect ratio of axes
-        ax_controlefforts.set_facecolor('#DEDEDE')
-        ax_poses.set_facecolor('#DEDEDE')
+        ax_poses = fig.add_subplot(2,2,2,projection='3d')
+        ax_controlefforts = fig.add_subplot(2,2,3)
+        
+        ax_cornerpoints.set_facecolor('#FFFFFF')
+        ax_cornerpoints.set_aspect(1,adjustable='datalim') # equal aspect ratio of axes
+        ax_poses.set_facecolor('#FFFFFF')
+        ax_controlefforts.set_facecolor('#FFFFFF')
+
+        ax_cornerpoints.grid()
+        ax_controlefforts.grid()
 
         # if any of the lists for plotting data are empty, return empty plot image
         if not (self.cornerpoints and self.controlefforts and self.poses):
@@ -202,9 +205,9 @@ class ControlDataLogger():
         # plot original position of marker
         points = self.cornerpoints[0] # first element of the list 
         ax_cornerpoints.add_patch(Polygon(points, 
-                                        edgecolor=(1,0,0,1), # red
+                                        edgecolor='tab:red',
                                         facecolor=(0,0,0,0), # transparent
-                                        linestyle="--",
+                                        linestyle="-",
                                         linewidth=2,
                                         closed=True))
 
@@ -213,17 +216,17 @@ class ControlDataLogger():
         for point in self.cornerpoints:
             cornerpoints = np.append(cornerpoints, np.reshape(point,(1,4,2)), axis=0)
         #     cornerpoints = np.append(cornerpoints,np.reshape(point,(1,4,2)), axis=0) # stack the matrices
-        ax_cornerpoints.plot(cornerpoints[:,0,0], cornerpoints[:,0,1], linewidth=2.0, color='blue') # plot path of first cornerpoint
-        ax_cornerpoints.plot(cornerpoints[:,1,0], cornerpoints[:,1,1], linewidth=2.0, color='green') # plot path of second cornerpoint
-        ax_cornerpoints.plot(cornerpoints[:,2,0], cornerpoints[:,2,1], linewidth=2.0, color='yellow') # plot path of third cornerpoint
-        ax_cornerpoints.plot(cornerpoints[:,3,0], cornerpoints[:,3,1], linewidth=2.0, color='magenta') # plot path of fourth cornerpoint
+        ax_cornerpoints.scatter(cornerpoints[:,0,0], cornerpoints[:,0,1], linewidth=0.5, color='tab:blue') # plot path of first cornerpoint
+        ax_cornerpoints.scatter(cornerpoints[:,1,0], cornerpoints[:,1,1], linewidth=0.5, color='tab:orange') # plot path of second cornerpoint
+        ax_cornerpoints.scatter(cornerpoints[:,2,0], cornerpoints[:,2,1], linewidth=0.5, color='tab:purple') # plot path of third cornerpoint
+        ax_cornerpoints.scatter(cornerpoints[:,3,0], cornerpoints[:,3,1], linewidth=0.5, color='tab:cyan') # plot path of fourth cornerpoint
 
         # plot final position of marker
         points = self.cornerpoints[-1] # last element of the list
         ax_cornerpoints.add_patch(Polygon(points, 
-                                        edgecolor=(0,0.5,0,1), # green
+                                        edgecolor='tab:green',
                                         facecolor=(0,0,0,0), # transparent
-                                        linestyle=":",
+                                        linestyle="-",
                                         linewidth=2,
                                         closed=True))
 
@@ -240,12 +243,12 @@ class ControlDataLogger():
             controleff[0,4,0] = controleff_twist.angular.y
             controleff[0,5,0] = controleff_twist.angular.z
             controleffs = np.append(controleffs,controleff, axis=0) # stack the matrices
-        ax_controlefforts.plot(self.time, controleffs[:,0,0], linewidth=2.0, color='blue', label="lin x") # plot linear x errfort
-        ax_controlefforts.plot(self.time, controleffs[:,1,0], linewidth=2.0, color='green', label="lin y") # plot linear y errfort
-        ax_controlefforts.plot(self.time, controleffs[:,2,0], linewidth=2.0, color='yellow', label="lin z") # plot linear z errfort
-        ax_controlefforts.plot(self.time, controleffs[:,3,0], linewidth=2.0, color='magenta', label="ang x") # plot angular x errfort
-        ax_controlefforts.plot(self.time, controleffs[:,4,0], linewidth=2.0, color='darkorange', label="ang y") # plot angular y errfort
-        ax_controlefforts.plot(self.time, controleffs[:,5,0], linewidth=2.0, color='red', label="ang z") # plot angular z errfort
+        ax_controlefforts.plot(self.time, controleffs[:,0,0], linewidth=2.0, color='tab:blue', label="lin x") # plot linear x errfort
+        ax_controlefforts.plot(self.time, controleffs[:,1,0], linewidth=2.0, color='tab:orange', label="lin y") # plot linear y errfort
+        ax_controlefforts.plot(self.time, controleffs[:,2,0], linewidth=2.0, color='tab:green', label="lin z") # plot linear z errfort
+        ax_controlefforts.plot(self.time, controleffs[:,3,0], linewidth=2.0, color='tab:red', label="ang x") # plot angular x errfort
+        ax_controlefforts.plot(self.time, controleffs[:,4,0], linewidth=2.0, color='tab:purple', label="ang y") # plot angular y errfort
+        ax_controlefforts.plot(self.time, controleffs[:,5,0], linewidth=2.0, color='tab:cyan', label="ang z") # plot angular z errfort
         ax_controlefforts.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
     ### SUBPLOT 3 ### : Plot the 3D path of the object center
@@ -253,7 +256,10 @@ class ControlDataLogger():
         for pose in self.poses:
             position = np.array([pose.position.x, pose.position.y, pose.position.z]).reshape((1,3,1))
             positions = np.append(positions, position, axis=0)
-        ax_poses.plot(positions[:,0,0], positions[:,1,0], positions[:,2,0], color='r')
+        X = positions[:,0,0]
+        Y = positions[:,1,0]
+        Z = positions[:,2,0]
+        ax_poses.plot(X, Y, Z, color='tab:red')
 
     # Save figure
         Path.cwd().joinpath('plots').mkdir(parents=False, exist_ok=True)
