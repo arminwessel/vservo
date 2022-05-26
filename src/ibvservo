@@ -20,9 +20,6 @@ class IBVSController():
         Constructor
         """
         self._pub = rospy.Publisher("cmd_vel", Twist, queue_size=1) # create publisher
-        self._pub2 = rospy.Publisher("ibvs_target", Point2DArray, queue_size=1) # create publisher
-        self._pub3 = rospy.Publisher("control_error", Point2DArray, queue_size=1) # create publisher
-
         self._sub = rospy.Subscriber("ibvs_features", Point2DArray, self.feature_update_received) # create subscriber
         self._sub2 = rospy.Subscriber("estimated_pose", Pose, self.update_pose) # create subscriber
         
@@ -39,8 +36,13 @@ class IBVSController():
         _target_depth = float(_target_depth_str)
         self.target_depth=_target_depth
 
+
         self.pose = Pose()
         self.pose.position.z = _target_depth # initialize Z with target depth 
+
+        _lambda_c_str = rospy.get_param("lambda_c")
+        _lambda_c = float(_lambda_c_str)
+        self.lambda_c=_lambda_c
 
         
 
@@ -144,13 +146,15 @@ class IBVSController():
                 for point in normalized_points: 
                     [x, y] = point
                     L = np.append(L,[[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]],axis=0)
-                return L
+            else: 
+                L = np.repeat(None,6).reshape((1,6)) # set L as [[None, None, .. , None]]
+            return L
             
         rospy.logwarn("L could not be updated because target features are missing")
         
 
 
-    def calc_velocities(self, lambda_c = 1) -> Twist:
+    def calc_velocities(self) -> Twist:
         """
         invert L_hat (MP Pseudoinverse) and calculate joint velocities
         """
@@ -158,9 +162,10 @@ class IBVSController():
 
         self.update_interaction_matrix()
 
-        if np.all(self.L) == None: # If no interaction matrix is defined, set command velocity to all zeros
+        if np.array(self.L == None).any(): # If no interaction matrix is defined, set command velocity to all zeros
+            print(self.L)
             _vel=np.zeros(6)
-            rospy.logwarn("Interaction Matrix is None, cmd_vel set to zero")
+            rospy.logdebug("Interaction Matrix contains None, cmd_vel set to zero")
         else:
             self.L_inv = np.linalg.pinv(self.L)
 
@@ -171,7 +176,7 @@ class IBVSController():
             _e = np.divide(_e, np.repeat([[_f_x, _f_y]], 4, axis=0)) # calculate error in normalized image plane
             _e_flat = _e.flatten()                           # flaten error [dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4]
 
-            _vel = - lambda_c * np.dot(self.L_inv, _e_flat) # calculate velocity command vector
+            _vel = - self.lambda_c * np.dot(self.L_inv, _e_flat) # calculate velocity command vector
 
         # pack the Twist message
         velocity_cmd.linear.x = _vel[0]

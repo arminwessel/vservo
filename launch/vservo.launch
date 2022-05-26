@@ -15,7 +15,8 @@
 
   <param name="target" value="40,40,-40,40,-40,-40,40,-40"/> <!--Array as string, normalized image coordinates-->
   <param name="target_depth" value="0.65"/> 
-  
+
+  <param name="lambda_c" value="0.05"/> 
 <!--Nodes-->
   <node name="ibvservo_node" pkg="vservo" type="ibvservo" required="true"/>
   <node name="detector_node" pkg="vservo" type="aruco_detector" />
