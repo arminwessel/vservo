@@ -36,6 +36,7 @@ class IBVSController():
         _target_depth = float(_target_depth_str)
         self.target_depth=_target_depth
 
+        self.current_features = None
 
         self.pose = Pose()
         self.pose.position.z = _target_depth # initialize Z with target depth 
@@ -57,25 +58,21 @@ class IBVSController():
         _array_current = utils.conv_Point2DArray_2_nparray(self.current_features)
         _array_target = utils.conv_Point2DArray_2_nparray(self.target)
         error = _array_target-_array_current
-        self._pub3.publish(utils.conv_nparray_2_Point2DArray(error))
         return error
 
 
-    def update_pose(self, pose : Pose) -> None:
+    def update_pose(self, data) -> None:
         """
-        Set the Pose determined by pose estimation
+        Callback function for the estimated pose from aruco_detector
         """
-        self.pose = pose
+        self.pose = data
 
 
-    def feature_update_received(self, feature_coordinates : Point2DArray) -> None:
+    def feature_update_received(self, data) -> None:
         """
-        Callback function for new features from camera
-        Initiate the calculation of the velocity command
+        Callback function for new features from aruco_detector
         """
-        self.current_features = feature_coordinates # save current feature data 
-        self._pub.publish(self.calc_velocities())   # calculate new velocities and publish the result 
-        self._pub2.publish(self.target) # Publich target too in order to visualize it
+        self.current_features = data 
         
 
     def get_Z(self) -> float:
@@ -85,9 +82,9 @@ class IBVSController():
         """
         if hasattr(self, 'pose'):
             return self.pose.position.z
-        # elif hasattr(self, 'target_depth'):
-        #     rospy.logwarn('Assumed target_depth for feature distance Z')
-        #     return self.target_depth           # assume Z to be target depth
+        elif hasattr(self, 'target_depth'):
+            rospy.logwarn('Assumed target_depth for feature distance Z')
+            return self.target_depth           # assume Z to be target depth
         else:
             return None
         
@@ -98,15 +95,15 @@ class IBVSController():
         L_type=rospy.get_param("L_type")
         if L_type == "TARGET_POINT": 
             # approximate L by using only the normalized image coordinates of the target
-            self.L = self.calc_L_matrix_current()
+            self.L = self.calc_L_matrix_target()
         elif L_type == "CURRENT_POINT": 
             # approximate L by using only the normalized image coordinates of the current feature
-            self.L = self.calc_L_matrix_target()
+            self.L = self.calc_L_matrix_current()
         elif L_type == "MIXED": 
             # approximate L by averaging L of current and target feature
             L1 = self.calc_L_matrix_current()
             L2 = self.calc_L_matrix_target()
-            if np.all(L1, L2) == None: # if any of the two variables evaluate to None the method returns None
+            if (np.append(L1,L2,axis=0) == None).any(): # if any of the two matrices L1,L2 contains None, self.L is set to None 
                 self.L = None
                 return
             self.L = np.multiply(0.5, np.add(L1, L2))
@@ -128,7 +125,9 @@ class IBVSController():
                 for point in normalized_points: 
                     [x, y] = point
                     L = np.append(L,[[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]],axis=0)
-                return L
+            else: 
+                L = np.repeat(None,6).reshape((1,6)) # set L as [[None, None, .. , None]]
+            return L
             
         rospy.logwarn("L could not be updated because current features are missing")
     
@@ -192,8 +191,16 @@ class IBVSController():
 
 # Main function.
 if __name__ == "__main__":
-    rospy.init_node('vservo_node') # init ROS node named vservo_node
+    rospy.init_node('ibvservo_node') # init ROS node named ibvservo_node
     rospy.loginfo('#Node vservo_node running#')
     controller = IBVSController()  # create controller instance
+    controller_rate = rospy.Rate(10) # 10hz
+    while not rospy.is_shutdown():
+        #t0 = rospy.get_time()
+        cmd_vel = controller.calc_velocities()
+        controller._pub.publish(cmd_vel)   # calculate new velocities and publish the result 
+        #t1 = rospy.get_time()
+        controller_rate.sleep()
+        #t2 = rospy.get_time()
+        #print('timeslot usage: {} %'.format(100*(t1-t0)/(t2-t0)))
     
-    rospy.spin()
