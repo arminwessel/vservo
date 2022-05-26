@@ -2,36 +2,61 @@
 """
 Node to Visualize controller
 """
+from turtle import color
 from attr import has
+from matplotlib import collections
 import rospy
 import numpy as np
 from sensor_msgs.msg import Image
 from vservo.msg import Point2D, Point2DArray
+from geometry_msgs.msg import Pose, Twist
+from std_msgs.msg import String
+from std_srvs.srv import Trigger, TriggerResponse
 import cv2
 from aruco_dict import ARUCO_DICT
 from cv_bridge import CvBridge
 import utils
-from geometry_msgs.msg import Twist
+import matplotlib.pyplot as plt
+from matplotlib.patches import Polygon
+from pathlib import Path
+from mpl_toolkits.mplot3d import Axes3D
 
 class ControlVisualizer():
     """
-    Visualize Control
+    Visualize target, current feature and more by overlaying camera image
     """
 
     def __init__(self) -> None:
         """
         Constructor
         """
-        self._sub = rospy.Subscriber("camera_node/image_raw", Image, self.image_received)
-        self._sub2 = rospy.Subscriber("ibvs_target", Point2DArray, self.target_update_received)
-        self._sub3 = rospy.Subscriber("ibvs_features", Point2DArray, self.feature_update_received) 
-        self._sub4 = rospy.Subscriber("cmd_vel",Twist, self.command_update_received)
-        self._pub = rospy.Publisher("image_control_overlay", Image, queue_size=20)
-        self.bridge = CvBridge()
 
         _camera_matrix_dict=_target_str = rospy.get_param("camera_matrix")
         _camera_matrix = np.array(_camera_matrix_dict['data'])
         self.camera_matrix = np.reshape(_camera_matrix, (_camera_matrix_dict['rows'], _camera_matrix_dict['cols']))
+
+        self.target_points = None
+        self.feature_points = None
+        self.cmd_vel = None
+        self.pose = None
+
+        self.dataLogger = ControlDataLogger() # instance for logging the data and generating plots
+
+        self.bridge = CvBridge() # bridge to convert between ROS image format and opencv image format
+
+        self._sub = rospy.Subscriber("camera_node/image_raw", Image, self.image_received)
+        self._sub2 = rospy.Subscriber("ibvs_target", Point2DArray, self.target_update_received)
+        self._sub3 = rospy.Subscriber("ibvs_features", Point2DArray, self.feature_update_received) 
+        self._sub4 = rospy.Subscriber("cmd_vel",Twist, self.command_update_received)
+        self._sub5 = rospy.Subscriber("estimated_pose",Pose, self.pose_update_received)
+
+        self._pub = rospy.Publisher("image_control_overlay", Image, queue_size=20)
+
+        self._serv = rospy.Service("generate_plot", Trigger, self.dataLogger.plot_system_behavior)
+
+        
+
+        
 
     def target_update_received(self, data) -> None:
         self.target_points = utils.conv_Point2DArray_2_nparray(data)
@@ -43,89 +68,210 @@ class ControlVisualizer():
     
     def command_update_received(self, data) -> None:
         self.cmd_vel = data
+        if self.control_is_active():
+            # Update the Control Logger with each control update
+            self.dataLogger.update_data(self.feature_points, self.cmd_vel, self.pose)
+        return
+    
+    def pose_update_received(self, data) -> None:
+        self.pose = data
         return
 
+
+    def control_is_active(self) -> bool:
+        _c = self.cmd_vel
+        is_active=set()
+        is_active.add(_c.linear.x)
+        is_active.add(_c.linear.y)
+        is_active.add(_c.linear.z)
+        is_active.add(_c.angular.x)
+        is_active.add(_c.angular.x)
+        is_active.add(_c.angular.x)
+        return is_active != {0} # return true if any of the cmd_vel is nonzero, meaning control is active
+
     def image_received(self, image_message : Image) -> None:
+        # generate overlay visualization
+        if not hasattr(self, 'bridge'):
+            return
         frame = self.bridge.imgmsg_to_cv2(image_message, desired_encoding='rgb8') # convert ROS image to opencv
-        self.frame = frame.copy() # work on copy
-        self.overlay_image()
+        overlay_frame = self.overlay_image(frame.copy())
+        self._pub.publish(self.bridge.cv2_to_imgmsg(overlay_frame, encoding="rgb8")) # convert opencv image to ROS
+        return
+
+        
     
-    def overlay_image(self) -> None:
+    def overlay_image(self, frame) -> None:
         # overlay a red box where the target is 
-        if hasattr(self, 'target_points'):
-            if len(self.target_points)>0:
-                cv2.polylines(self.frame, 
-                    [self.target_points],
-                    isClosed = True,
-                    color = (255,0,0), # red
-                    thickness = 3)
+        if np.any(self.target_points):
+            cv2.polylines(frame, 
+                [self.target_points],
+                isClosed = True,
+                color = (255,0,0), # red
+                thickness = 3)
 
         # overlay a green box where the feature is 
-        if hasattr(self, 'feature_points'):
-            if len(self.feature_points)>0:
-                cv2.polylines(self.frame, 
-                    [self.feature_points],
-                    isClosed = True,
-                    color = (0,255,0), # green
-                    thickness = 3)
+        if np.any(self.feature_points):
+            cv2.polylines(frame, 
+                [self.feature_points],
+                isClosed = True,
+                color = (0,255,0), # green
+                thickness = 3)
         
         # overlay arrows
-        if hasattr(self, 'feature_points') and hasattr(self, 'target_points'):
-            if len(self.feature_points)>0 and len(self.target_points)>0:
-                for arrowpoints in np.concatenate((self.feature_points, self.target_points), axis=1):
-                    cv2.arrowedLine(self.frame,
-                            (arrowpoints[0], arrowpoints[1]),
-                            (arrowpoints[2], arrowpoints[3]),
-                            # color = (255,215,0), # gold
-                            color = (66,117,245), # blue
-                            thickness = 2)
-                            
-        if True: # enable/disable additional plots
-            # coordinate systems:
-            # cv2.arrowedLine(self.frame,
-            #                 (0, 0),
-            #                 (70,0),
-            #                 color = (0,0,0), # black
-            #                 thickness = 2)
-            # cv2.arrowedLine(self.frame,
-            #                 (0, 0),
-            #                 (0,70),
-            #                 color = (0,0,0), # black
-            #                 thickness = 2)
-            _c_u = int(self.camera_matrix[0,2])
-            _c_v = int(self.camera_matrix[1,2])
-            _f_x = int(self.camera_matrix[0,0])
-            _f_y = int(self.camera_matrix[1,1])
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            cv2.arrowedLine(self.frame,
-                            (_c_u, _c_v),
-                            (_c_u+50, _c_v),
-                            color = (0,0,0), # black
-                            thickness = 2)
-            cv2.putText(self.frame, 'x', (_c_u+55, _c_v), font, 1, (0, 0, 0), 2, cv2.LINE_AA)
-            cv2.arrowedLine(self.frame,
-                            (_c_u, _c_v),
-                            (_c_u, _c_v+50),
-                            color = (0,0,0), # black
-                            thickness = 2)
-            cv2.putText(self.frame, 'y', (_c_u+10, _c_v+60), font, 1, (0, 0, 0), 2, cv2.LINE_AA)
+        if np.any(self.feature_points) and np.any(self.target_points):
+            for arrowpoints in np.concatenate((self.feature_points, self.target_points), axis=1):
+                cv2.arrowedLine(frame,
+                        (arrowpoints[0], arrowpoints[1]),
+                        (arrowpoints[2], arrowpoints[3]),
+                        # color = (255,215,0), # gold
+                        color = (66,117,245), # blue
+                        thickness = 2)
 
-            # control effort in x,y
-            # if hasattr(self, 'feature_points') and hasattr(self, 'target_points') and len(self.feature_points)>0 and len(self.target_points)>0:
-            #     c = np.array([self.cmd_vel.linear.x, self.cmd_vel.linear.y])
-            #     c = 50* c / np.linalg.norm(c) # normalize vector to length 50
-            #     c = c.astype(int)
-            #     feature_center = np.mean(self.feature_points, axis=0)
-            #     feature_center = feature_center.astype(int)
+        # overlay origin of x,y coordinate system                    
+        _c_u = int(self.camera_matrix[0,2])
+        _c_v = int(self.camera_matrix[1,2])
+        _f_x = int(self.camera_matrix[0,0])
+        _f_y = int(self.camera_matrix[1,1])
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.arrowedLine(frame,
+                        (_c_u, _c_v),
+                        (_c_u+50, _c_v),
+                        color = (0,0,0), # black
+                        thickness = 2)
+        cv2.putText(frame, 'x', (_c_u+55, _c_v), font, 1, (0, 0, 0), 2, cv2.LINE_AA)
+        cv2.arrowedLine(frame,
+                        (_c_u, _c_v),
+                        (_c_u, _c_v+50),
+                        color = (0,0,0), # black
+                        thickness = 2)
+        cv2.putText(frame, 'y', (_c_u+10, _c_v+60), font, 1, (0, 0, 0), 2, cv2.LINE_AA)
 
-            #     cv2.arrowedLine(self.frame,
-            #                     (feature_center[0], feature_center[1]),
-            #                     (feature_center[0]+c[0], feature_center[1]+c[1]),
-            #                     color = (255,215,0), # gold
-            #                     thickness = 2)
-        # publish
-        self._pub.publish(self.bridge.cv2_to_imgmsg(self.frame, encoding="rgb8"))
+        return frame
+        
 
+
+class ControlDataLogger():
+    """
+    Collect sontrol data over time:
+         Cornerpoints, Control Effort and 3D Pose
+    Create plot from collected data
+    """
+    def __init__(self) -> None:
+        """
+        Constructor
+        """
+        # store data in list, will be appended in each step
+        self.cornerpoints = []
+        self.controlefforts = []
+        self.poses = []
+        self.time = []
+        
+    def update_data(self, cornerpoint : Point2DArray, controleffort : Twist, pose : Pose) -> None:
+        """
+        Append new data on the right side 
+        """
+        self.cornerpoints.append(cornerpoint)
+        self.controlefforts.append(controleffort)
+        self.poses.append(pose)
+        self.time.append(rospy.get_time())
+
+
+    def plot_system_behavior(self, request) -> TriggerResponse: # service function
+        # define and adjust figure
+        plt.ioff() # turn off interactive mode
+        plt.rcParams.update({'font.size': 12, 'mathtext.fontset' : 'stix', 'font.family' : 'STIXGeneral'})
+        plt.tight_layout()
+        fig = plt.figure(figsize=(7,7), facecolor='#FFFFFF')
+        ax_cornerpoints = fig.add_subplot(2,2,1)
+        ax_controlefforts = fig.add_subplot(2,2,2)
+        ax_poses = fig.add_subplot(2,2,3,projection='3d')
+        ax_cornerpoints.set_facecolor('#DEDEDE') # light gray
+        ax_cornerpoints.set_aspect('equal', 'box') # equal aspect ratio of axes
+        ax_controlefforts.set_facecolor('#DEDEDE')
+        ax_poses.set_facecolor('#DEDEDE')
+
+        # if any of the lists for plotting data are empty, return empty plot image
+        if not (self.cornerpoints and self.controlefforts and self.poses):
+            response = TriggerResponse()
+            response.success = False
+            response.message = "Plot aborted - Some of the data required for the plots is missing"
+            return response
+
+
+    ### SUBPLOT 1 ### : Plot the path of the corners and the outline of the starting and end position
+        # plot original position of marker
+        points = self.cornerpoints[0] # first element of the list 
+        ax_cornerpoints.add_patch(Polygon(points, 
+                                        edgecolor=(1,0,0,1), # red
+                                        facecolor=(0,0,0,0), # transparent
+                                        linestyle="--",
+                                        linewidth=2,
+                                        closed=True))
+
+        # plot path of corners
+        cornerpoints=np.zeros((0,4,2)) # initialize 3D array (zero length stack of 2D 4 by 2 matrices)
+        for point in self.cornerpoints:
+            cornerpoints = np.append(cornerpoints, np.reshape(point,(1,4,2)), axis=0)
+        #     cornerpoints = np.append(cornerpoints,np.reshape(point,(1,4,2)), axis=0) # stack the matrices
+        ax_cornerpoints.plot(cornerpoints[:,0,0], cornerpoints[:,0,1], linewidth=2.0, color='blue') # plot path of first cornerpoint
+        ax_cornerpoints.plot(cornerpoints[:,1,0], cornerpoints[:,1,1], linewidth=2.0, color='green') # plot path of second cornerpoint
+        ax_cornerpoints.plot(cornerpoints[:,2,0], cornerpoints[:,2,1], linewidth=2.0, color='yellow') # plot path of third cornerpoint
+        ax_cornerpoints.plot(cornerpoints[:,3,0], cornerpoints[:,3,1], linewidth=2.0, color='magenta') # plot path of fourth cornerpoint
+
+        # plot final position of marker
+        points = self.cornerpoints[-1] # last element of the list
+        ax_cornerpoints.add_patch(Polygon(points, 
+                                        edgecolor=(0,0.5,0,1), # green
+                                        facecolor=(0,0,0,0), # transparent
+                                        linestyle=":",
+                                        linewidth=2,
+                                        closed=True))
+
+    ### SUBPLOT 2 ### : Plot the 6 values of cmd_vel over time
+        controleffs=np.zeros((0,6,1)) # initialize 3D array (zero length stack of 2D 4 by 2 matrices)
+        for controleff_twist in self.controlefforts:
+            # if controleff_twist == None:
+            #     continue
+            controleff = np.zeros((1,6,1))
+            controleff[0,0,0] = controleff_twist.linear.x
+            controleff[0,1,0] = controleff_twist.linear.y
+            controleff[0,2,0] = controleff_twist.linear.z
+            controleff[0,3,0] = controleff_twist.angular.x
+            controleff[0,4,0] = controleff_twist.angular.y
+            controleff[0,5,0] = controleff_twist.angular.z
+            controleffs = np.append(controleffs,controleff, axis=0) # stack the matrices
+        ax_controlefforts.plot(self.time, controleffs[:,0,0], linewidth=2.0, color='blue', label="lin x") # plot linear x errfort
+        ax_controlefforts.plot(self.time, controleffs[:,1,0], linewidth=2.0, color='green', label="lin y") # plot linear y errfort
+        ax_controlefforts.plot(self.time, controleffs[:,2,0], linewidth=2.0, color='yellow', label="lin z") # plot linear z errfort
+        ax_controlefforts.plot(self.time, controleffs[:,3,0], linewidth=2.0, color='magenta', label="ang x") # plot angular x errfort
+        ax_controlefforts.plot(self.time, controleffs[:,4,0], linewidth=2.0, color='darkorange', label="ang y") # plot angular y errfort
+        ax_controlefforts.plot(self.time, controleffs[:,5,0], linewidth=2.0, color='red', label="ang z") # plot angular z errfort
+        ax_controlefforts.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+
+    ### SUBPLOT 3 ### : Plot the 3D path of the object center
+        positions = np.zeros((0,3,1))
+        for pose in self.poses:
+            position = np.array([pose.position.x, pose.position.y, pose.position.z]).reshape((1,3,1))
+            positions = np.append(positions, position, axis=0)
+        ax_poses.plot(positions[:,0,0], positions[:,1,0], positions[:,2,0], color='r')
+
+    # Save figure
+        Path.cwd().joinpath('plots').mkdir(parents=False, exist_ok=True)
+        plotfile = str(Path.cwd().joinpath('plots', 'ControlDataLogger_{}.pdf'.format(int(rospy.get_time()))))
+        try:
+            # save figure as pdf with the name including the integer seconds from the float time
+            plt.savefig(plotfile) 
+        except:
+            response = TriggerResponse()
+            response.success = False
+            response.message = "Plot could not be saved"
+            return response
+
+        response = TriggerResponse()
+        response.success = True
+        response.message = "Plot saved to {}".format(plotfile)
+        return response
+       
 
 # Main function.
 if __name__ == "__main__":

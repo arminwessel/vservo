@@ -39,6 +39,9 @@ class IBVSController():
         _target_depth = float(_target_depth_str)
         self.target_depth=_target_depth
 
+        self.pose = Pose()
+        self.pose.position.z = _target_depth # initialize Z with target depth 
+
         
 
     def calc_error(self) -> np.array:
