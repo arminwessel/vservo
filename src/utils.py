@@ -12,6 +12,9 @@ def conv_Point2DArray_2_nparray(data : Point2DArray) -> np.array:
         return None
     _points = data.points
 
+    if len(_points)==0:
+        return None
+
     out = np.zeros([0,2])               # initialize empty matrix with 2 cols
     for point in _points:
         out=np.append(out,[[point.x, point.y]], axis=0)
