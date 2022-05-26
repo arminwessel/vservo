@@ -32,14 +32,10 @@ class IBVSController():
         _target = np.reshape(np.fromstring(_target_str, dtype=int, sep=','),(4,2))
         self.target=utils.conv_nparray_2_Point2DArray(utils.conv_norm_2_pix(_target, self.camera_matrix))
 
-        _target_depth_str = rospy.get_param("target_depth")
-        _target_depth = float(_target_depth_str)
-        self.target_depth=_target_depth
-
         self.current_features = None
 
         self.pose = Pose()
-        self.pose.position.z = _target_depth # initialize Z with target depth 
+        self.pose.position.z = 1 # initialize Z with 1
 
         _lambda_c_str = rospy.get_param("lambda_c")
         _lambda_c = float(_lambda_c_str)
@@ -78,13 +74,9 @@ class IBVSController():
     def get_Z(self) -> float:
         """
         Return depth (distance on optical axis from camera to marker) in case pose estimation is available.
-        If no estimate is available return target depth
         """
         if hasattr(self, 'pose'):
             return self.pose.position.z
-        elif hasattr(self, 'target_depth'):
-            rospy.logwarn('Assumed target_depth for feature distance Z')
-            return self.target_depth           # assume Z to be target depth
         else:
             return None
         
@@ -112,44 +104,50 @@ class IBVSController():
 
 
     def calc_L_matrix_current(self) -> np.array:
-        # approximate L by using only the normalized image coordinates of the current feature
+        """
+        Approximate L by using only the normalized image coordinates of the current feature
+        """
+        L = np.repeat(None,6).reshape((1,6)) # set L as [[None, None, .. , None]] 
+        
         if hasattr(self.current_features, 'points'): # check if features are available
-            if len(self.current_features.points)>0:
-                L = np.zeros([0,6])               # initialize empty matrix with 6 cols
+            if len(self.current_features.points)>0:        
                 Z = self.get_Z()
                 if Z == None:
-                    rospy.logwarn("Distance Z is None")
-                    return
+                    rospy.logwarn("L could not be updated because distance Z is None")
+                    return L
+                L = np.zeros([0,6])
                 _array_current = utils.conv_Point2DArray_2_nparray(self.current_features)
                 normalized_points = utils.conv_pix_2_norm(_array_current, self.camera_matrix)
                 for point in normalized_points: 
                     [x, y] = point
                     L = np.append(L,[[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]],axis=0)
-            else: 
-                L = np.repeat(None,6).reshape((1,6)) # set L as [[None, None, .. , None]]
-            return L
-            
-        rospy.logwarn("L could not be updated because current features are missing")
-    
+                return L
+        
+        rospy.logdebug_once("L could not be updated because current features are missing")
+        return L
+
     def calc_L_matrix_target(self) -> np.array:
-        # approximate L by using only the normalized image coordinates of the target feature
+        """
+        Approximate L by using only the normalized image coordinates of the target feature
+        """
+        L = np.repeat(None,6).reshape((1,6)) # set L as [[None, None, .. , None]] 
+        
         if hasattr(self.target, 'points'): # check if features are available
-            if len(self.target.points)>0:
-                L = np.zeros([0,6])               # initialize empty matrix with 6 cols
+            if len(self.target.points)>0:        
                 Z = self.get_Z()
                 if Z == None:
-                    rospy.logwarn("Distance Z is None")
-                    return
+                    rospy.logwarn("L could not be updated because distance Z is None")
+                    return L
+                L = np.zeros([0,6])
                 _array_target = utils.conv_Point2DArray_2_nparray(self.target)
                 normalized_points = utils.conv_pix_2_norm(_array_target, self.camera_matrix)
                 for point in normalized_points: 
                     [x, y] = point
                     L = np.append(L,[[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]],axis=0)
-            else: 
-                L = np.repeat(None,6).reshape((1,6)) # set L as [[None, None, .. , None]]
-            return L
-            
-        rospy.logwarn("L could not be updated because target features are missing")
+                return L
+        
+        rospy.logdebug_once("L could not be updated because current features are missing")
+        return L
         
 
 
