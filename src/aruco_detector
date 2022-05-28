@@ -11,7 +11,7 @@ import cv2
 from aruco_dict import ARUCO_DICT
 from cv_bridge import CvBridge
 import utils
-from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Rotation
 
 class ArucoDetector():
     """
@@ -92,8 +92,8 @@ class ArucoDetector():
         [trans.x, trans.y, trans.z] = tvecs[0][0]
 
         # create Quaternion representing rotation of estimated pose
-        _r = R.from_rotvec(rvecs[0][0]) # Rotation object from SciPy
-        [rot.x, rot.y, rot.z, rot.w] = R.as_quat(_r)
+        _r = Rotation.from_rotvec(rvecs[0][0]) # Rotation object from SciPy
+        [rot.x, rot.y, rot.z, rot.w] = Rotation.as_quat(_r)
 
         # compose and publish Pose object
         pose.position=trans

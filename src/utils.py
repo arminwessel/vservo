@@ -4,6 +4,7 @@ Utility Functions
 """
 
 from vservo.msg import Point2D, Point2DArray
+from geometry_msgs.msg import Pose
 import numpy as np
 import rospy
 
@@ -71,4 +72,21 @@ def conv_norm_2_pix(coordinates: np.array, camera_matrix: np.array) -> np.array:
     coordinates_new = np.add(coordinates, np.repeat([[_c_u, _c_v]],4, axis=0))
     coordinates_new = coordinates_new.astype(int) # pixel values are always integers
     return coordinates_new
-    
+
+def get_pose_from_target_coordinates(coordinates: np.array) -> Pose:
+    """
+    Given the position of the four corners of an ArUco tag,
+    together with the size of a tag (length of a side) and camera parameters
+    calculate the pose the camera is in
+    """
+    # this function is somehow implemented in ArUco, no need to write a new one from scratch
+    pass
+
+def get_target_coordinates_from_pose(pose : Pose) -> np.array:
+    """
+    Given the pose of an ArUco tag,
+    together with the size of a tag (length of a side) and camera parameters
+    calculate the position of the four corners in normalized image coordinates
+    """
+    # try to use the code from ArUco as a template for an efficient implementation
+    pass

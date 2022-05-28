@@ -1,0 +1,226 @@
+#!/usr/bin/env python
+"""
+Pose Based Visual Servoing
+"""
+
+from attr import has
+import rospy
+import numpy as np
+from geometry_msgs.msg import Twist, Pose
+#from vservo.msg import  Point2DArray
+from std_msgs.msg import Float32
+import utils
+from scipy.spatial.transform import Rotation
+
+class PBVSController():
+    """
+    Pose Based Visual Servo Controller
+    """
+
+    def __init__(self) -> None:
+        """
+        Constructor
+        """
+        self._pub = rospy.Publisher("cmd_vel", Twist, queue_size=1) # create publisher
+        self._sub = rospy.Subscriber("estimated_pose", Pose, self.update_pose) # create subscriber
+        
+
+        _camera_matrix_dict= rospy.get_param("camera_matrix")
+        _camera_matrix = np.array(_camera_matrix_dict['data'])
+        self.camera_matrix = np.reshape(_camera_matrix, (_camera_matrix_dict['rows'], _camera_matrix_dict['cols']))
+        
+        _target_str = rospy.get_param("target")
+        self.target = np.reshape(np.fromstring(_target_str, dtype=int, sep=','),(4,2))
+
+        self.current_features = None
+
+        self.pose = Pose()
+
+        _lambda_c_str = rospy.get_param("lambda_c")
+        _lambda_c = float(_lambda_c_str)
+        self.lambda_c=_lambda_c
+
+
+        
+
+    def calc_velocities(self) -> Twist:
+        """
+        Calculate velocities
+         - read from parameter server to determine if PBVS1 or PBVS2 should be used
+                # PBVS_type=rospy.get_param("PBVS_type")
+         - check if all necessary data is available 
+                # hasattr and (stuff==None).any()
+         - invoke function to calculate velocity based on which methos is to be used
+         - pack velocities vector into twist
+         - return twist
+        """
+        PBVS_type=rospy.get_param("PBVS_type")
+        if PBVS_type == "PBVS1": 
+            # test if all data is given and call function to calculate velocities
+            # TODO
+            pass
+        elif PBVS_type == "PBVS2": 
+            # test if all data is given and call function to calculate velocities
+            # TODO
+            pass
+        else:
+            rospy.logerr("No method or unknown method specified for PBVS type")
+
+
+    def update_pose(self, data) -> None:
+        """
+        Callback function for the estimated pose from aruco_detector
+        """
+        self.pose = data
+
+
+        
+    def calc_pbvs_1(self) -> np.array:
+        """
+        Calculate velocities based on poses of the object from current and desired camera position
+        """
+        pose_desired = utils.get_pose_from_target_coordinates(self.target) # get pose from target corner specification
+        _pos = pose_desired.position # unpack t from pose
+        t_0_desired = np.array([_pos.x, _pos.y, _pos.z]) 
+        
+
+        _pos = self.pose.position # unpack t from pose
+        t_0_current = np.array([_pos.x, _pos.y, _pos.z])
+
+        _quat = self.pose.orientation # unpack theta_u from pose
+        _r = Rotation.from_quat(np.array([_quat.x, _quat.y, _quat.z, _quat.w])) # Rotation object from SciPy
+        theta_u = Rotation.as_rotvec(_r) # use rotation object to convert to angle axis representation
+
+        # implement control law
+        v_c = -self.lambda_c * (np.subtract(t_0_desired, t_0_current)+np.cross(t_0_current, theta_u))
+        w_c = -self.lambda_c * (theta_u)
+
+        return np.append(v_c, w_c)
+
+
+    def calc_pbvs_2(self) -> np.array:
+        """
+        Calculate velocities based on pose of current camera in reference desired camera position
+        """
+        pose_desired = utils.get_pose_from_target_coordinates(self.target)
+        _pos = pose_desired.position
+        t_0_desired = np.array([_pos.x, _pos.y, _pos.z]) 
+        
+
+        _pos = self.pose.position
+        t_0_current = np.array([_pos.x, _pos.y, _pos.z])
+
+        _quat = self.pose.orientation
+        _r = Rotation.from_quat(np.array([_quat.x, _quat.y, _quat.z, _quat.w])) # Rotation object from SciPy
+        theta_u = Rotation.as_rotvec(_r)
+
+        v_c = -self.lambda_c * (np.subtract(t_0_desired, t_0_current)+np.cross(t_0_current, theta_u))
+        w_c = -self.lambda_c * (theta_u)
+
+        return np.append(v_c, w_c)
+
+
+
+    def calc_L_matrix_current(self) -> np.array:
+        """
+        Approximate L by using only the normalized image coordinates of the current feature
+        """
+        L = np.repeat(None,6).reshape((1,6)) # set L as [[None, None, .. , None]] 
+        
+        if hasattr(self.current_features, 'points'): # check if features are available
+            if len(self.current_features.points)>0:        
+                Z = self.get_Z()
+                if Z == None:
+                    rospy.logwarn("L could not be updated because distance Z is None")
+                    return L
+                L = np.zeros([0,6])
+                _array_current = utils.conv_Point2DArray_2_nparray(self.current_features)
+                normalized_points = utils.conv_pix_2_norm(_array_current, self.camera_matrix)
+                for point in normalized_points: 
+                    [x, y] = point
+                    L = np.append(L,[[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]],axis=0)
+                return L
+        
+        rospy.logdebug_once("L could not be updated because current features are missing")
+        return L
+
+    def calc_L_matrix_target(self) -> np.array:
+        """
+        Approximate L by using only the normalized image coordinates of the target feature
+        """
+        L = np.repeat(None,6).reshape((1,6)) # set L as [[None, None, .. , None]] 
+        
+        if hasattr(self.target, 'points'): # check if features are available
+            if len(self.target.points)>0:        
+                Z = self.get_Z()
+                if Z == None:
+                    rospy.logwarn("L could not be updated because distance Z is None")
+                    return L
+                L = np.zeros([0,6])
+                _array_target = utils.conv_Point2DArray_2_nparray(self.target)
+                normalized_points = utils.conv_pix_2_norm(_array_target, self.camera_matrix)
+                for point in normalized_points: 
+                    [x, y] = point
+                    L = np.append(L,[[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]],axis=0)
+                return L
+        
+        rospy.logdebug_once("L could not be updated because current features are missing")
+        return L
+        
+
+
+    def calc_velocities(self) -> Twist:
+        """
+        invert L_hat (MP Pseudoinverse) and calculate joint velocities
+        """
+        velocity_cmd = Twist()                      # initialize empty Twist message
+
+        self.update_interaction_matrix()
+
+        if np.array(self.L == None).any(): # If no interaction matrix is defined, set command velocity to all zeros
+            print(self.L)
+            _vel=np.zeros(6)
+            rospy.logdebug("Interaction Matrix contains None, cmd_vel set to zero")
+        else:
+            self.L_inv = np.linalg.pinv(self.L)
+
+            _f_x = self.camera_matrix[0,0]
+            _f_y = self.camera_matrix[1,1]
+
+            _e = self.calc_error()     # calculate error in pixel coordinates [[du1, dv1],  [du2, dv2],  [du3, dv3], [du4, dv4]]
+            _e = np.divide(_e, np.repeat([[_f_x, _f_y]], 4, axis=0)) # calculate error in normalized image plane
+            _e_flat = _e.flatten()                           # flaten error [dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4]
+
+            _vel = - self.lambda_c * np.dot(self.L_inv, _e_flat) # calculate velocity command vector
+
+        # pack the Twist message
+        velocity_cmd.linear.x = _vel[0]
+        velocity_cmd.linear.y = _vel[1]
+        velocity_cmd.linear.z = _vel[2]
+        velocity_cmd.angular.x = _vel[3]
+        velocity_cmd.angular.y = _vel[4]
+        velocity_cmd.angular.z = _vel[5]
+
+        return velocity_cmd
+        
+
+
+# Main function.
+if __name__ == "__main__":
+    rospy.init_node('pbvservo_node') # init ROS node named ibvservo_node
+    rospy.loginfo('#Node pbvservo_node running#')
+
+    controller = PBVSController()  # create controller instance
+
+    controller_rate = rospy.Rate(100) # 10hz
+    pub_timeslot = rospy.Publisher("timeslot_usage", Float32, queue_size=1) # create publisher
+    while not rospy.is_shutdown():
+        t0 = rospy.get_time()
+        cmd_vel = controller.calc_velocities()
+        controller._pub.publish(cmd_vel)   # calculate new velocities and publish the result 
+        t1 = rospy.get_time()
+        controller_rate.sleep()
+        t2 = rospy.get_time()
+        #print('timeslot usage: {} %'.format(100*(t1-t0)/(t2-t0)))
+        pub_timeslot.publish(100*(t1-t0)/(t2-t0))
+    
