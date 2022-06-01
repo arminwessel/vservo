@@ -190,15 +190,16 @@ class ControlDataLogger():
         ax_cornerpoints.grid()
         ax_controlefforts.grid()
 
-        # if any of the lists for plotting data are empty, return empty plot image
-        if not (self.cornerpoints and self.controlefforts and self.poses):
+
+
+    ### SUBPLOT 1 ### : Plot the path of the corners and the outline of the starting and end position
+        # check if data is available
+        if (np.array(self.cornerpoints)==None).all():
             response = TriggerResponse()
             response.success = False
             response.message = "Plot aborted - Some of the data required for the plots is missing"
             return response
 
-
-    ### SUBPLOT 1 ### : Plot the path of the corners and the outline of the starting and end position
         # plot original position of marker
         points = self.cornerpoints[0] # first element of the list 
         ax_cornerpoints.add_patch(Polygon(points, 
@@ -228,6 +229,13 @@ class ControlDataLogger():
                                         closed=True))
 
     ### SUBPLOT 2 ### : Plot the 6 values of cmd_vel over time
+        # check if data is available
+        if (np.array(self.controlefforts)==None).all():
+            response = TriggerResponse()
+            response.success = False
+            response.message = "Plot aborted - Some of the data required for the plots is missing"
+            return response
+
         controleffs=np.zeros((0,6,1)) # initialize 3D array (zero length stack of 2D 4 by 2 matrices)
         for controleff_twist in self.controlefforts:
             # if controleff_twist == None:
@@ -249,6 +257,13 @@ class ControlDataLogger():
         ax_controlefforts.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
     ### SUBPLOT 3 ### : Plot the 3D path of the object center
+        # check if data is available
+        if (np.array(self.poses)==None).all():
+            response = TriggerResponse()
+            response.success = False
+            response.message = "Plot aborted - Some of the data required for the plots is missing"
+            return response
+
         positions = np.zeros((0,3,1))
         for pose in self.poses:
             position = np.array([pose.position.x, pose.position.y, pose.position.z]).reshape((1,3,1))
