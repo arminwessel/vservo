@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Node to Visualize controller
 """
@@ -20,6 +20,7 @@ from matplotlib.patches import Polygon
 from pathlib import Path
 from mpl_toolkits.mplot3d import Axes3D
 import ros_numpy
+import pickle
 
 class ControlVisualizer():
     """
@@ -47,7 +48,7 @@ class ControlVisualizer():
         self._sub = rospy.Subscriber("camera_node/image_raw", Image, self.image_received)
         self._sub3 = rospy.Subscriber("ibvs_features", Point2DArray, self.feature_update_received) 
         self._sub4 = rospy.Subscriber("cmd_vel",Twist, self.command_update_received)
-        self._sub5 = rospy.Subscriber("estimated_pose",Pose, self.pose_update_received)
+        self._sub5 = rospy.Subscriber("current_pose",Pose, self.pose_update_received)
 
         self._pub = rospy.Publisher("image_control_overlay", Image, queue_size=20)
 
@@ -171,7 +172,7 @@ class ControlDataLogger():
         self.time.append(rospy.get_time())
 
 
-    def plot_system_behavior(self, request) -> TriggerResponse: # service function
+    def plot_system_behavior(self, request) -> TriggerResponse: # service
         # define and adjust figure
         plt.ioff() # turn off interactive mode
         plt.rcParams.update({'font.size': 12, 'mathtext.fontset' : 'stix', 'font.family' : 'STIXGeneral'})
@@ -193,92 +194,77 @@ class ControlDataLogger():
 
     ### SUBPLOT 1 ### : Plot the path of the corners and the outline of the starting and end position
         # check if data is available
-        if (np.array(self.cornerpoints)==None).all():
-            response = TriggerResponse()
-            response.success = False
-            response.message = "Plot aborted - Some of the data required for the plots is missing"
-            return response
+        if not (np.array(self.cornerpoints)==None).all():
+            # plot original position of marker
+            points = self.cornerpoints[0] # first element of the list 
+            ax_cornerpoints.add_patch(Polygon(points, 
+                                            edgecolor='tab:red',
+                                            facecolor=(0,0,0,0), # transparent
+                                            linestyle="-",
+                                            linewidth=2,
+                                            closed=True))
 
-        # plot original position of marker
-        points = self.cornerpoints[0] # first element of the list 
-        ax_cornerpoints.add_patch(Polygon(points, 
-                                        edgecolor='tab:red',
-                                        facecolor=(0,0,0,0), # transparent
-                                        linestyle="-",
-                                        linewidth=2,
-                                        closed=True))
+            # plot path of corners
+            cornerpoints=np.zeros((0,4,2)) # initialize 3D array (zero length stack of 2D 4 by 2 matrices)
+            for point in self.cornerpoints:
+                cornerpoints = np.append(cornerpoints, np.reshape(point,(1,4,2)), axis=0)
+            #     cornerpoints = np.append(cornerpoints,np.reshape(point,(1,4,2)), axis=0) # stack the matrices
+            ax_cornerpoints.scatter(cornerpoints[:,0,0], cornerpoints[:,0,1], s=10, color='tab:blue') # plot path of first cornerpoint
+            ax_cornerpoints.scatter(cornerpoints[:,1,0], cornerpoints[:,1,1], s=10, color='tab:orange') # plot path of second cornerpoint
+            ax_cornerpoints.scatter(cornerpoints[:,2,0], cornerpoints[:,2,1], s=10, color='tab:purple') # plot path of third cornerpoint
+            ax_cornerpoints.scatter(cornerpoints[:,3,0], cornerpoints[:,3,1], s=10, color='tab:cyan') # plot path of fourth cornerpoint
 
-        # plot path of corners
-        cornerpoints=np.zeros((0,4,2)) # initialize 3D array (zero length stack of 2D 4 by 2 matrices)
-        for point in self.cornerpoints:
-            cornerpoints = np.append(cornerpoints, np.reshape(point,(1,4,2)), axis=0)
-        #     cornerpoints = np.append(cornerpoints,np.reshape(point,(1,4,2)), axis=0) # stack the matrices
-        ax_cornerpoints.scatter(cornerpoints[:,0,0], cornerpoints[:,0,1], s=10, color='tab:blue') # plot path of first cornerpoint
-        ax_cornerpoints.scatter(cornerpoints[:,1,0], cornerpoints[:,1,1], s=10, color='tab:orange') # plot path of second cornerpoint
-        ax_cornerpoints.scatter(cornerpoints[:,2,0], cornerpoints[:,2,1], s=10, color='tab:purple') # plot path of third cornerpoint
-        ax_cornerpoints.scatter(cornerpoints[:,3,0], cornerpoints[:,3,1], s=10, color='tab:cyan') # plot path of fourth cornerpoint
-
-        # plot final position of marker
-        points = self.cornerpoints[-1] # last element of the list
-        ax_cornerpoints.add_patch(Polygon(points, 
-                                        edgecolor='tab:green',
-                                        facecolor=(0,0,0,0), # transparent
-                                        linestyle="-",
-                                        linewidth=2,
-                                        closed=True))
+            # plot final position of marker
+            points = self.cornerpoints[-1] # last element of the list
+            ax_cornerpoints.add_patch(Polygon(points, 
+                                            edgecolor='tab:green',
+                                            facecolor=(0,0,0,0), # transparent
+                                            linestyle="-",
+                                            linewidth=2,
+                                            closed=True))
 
     ### SUBPLOT 2 ### : Plot the 6 values of cmd_vel over time
         # check if data is available
-        if (np.array(self.controlefforts)==None).all():
-            response = TriggerResponse()
-            response.success = False
-            response.message = "Plot aborted - Some of the data required for the plots is missing"
-            return response
-
-        controleffs=np.zeros((0,6,1)) # initialize 3D array (zero length stack of 2D 4 by 2 matrices)
-        for controleff_twist in self.controlefforts:
-            # if controleff_twist == None:
-            #     continue
-            controleff = np.zeros((1,6,1))
-            controleff[0,0,0] = controleff_twist.linear.x
-            controleff[0,1,0] = controleff_twist.linear.y
-            controleff[0,2,0] = controleff_twist.linear.z
-            controleff[0,3,0] = controleff_twist.angular.x
-            controleff[0,4,0] = controleff_twist.angular.y
-            controleff[0,5,0] = controleff_twist.angular.z
-            controleffs = np.append(controleffs,controleff, axis=0) # stack the matrices
-        ax_controlefforts.plot(self.time, controleffs[:,0,0], linewidth=2.0, color='tab:blue', label="lin x") # plot linear x errfort
-        ax_controlefforts.plot(self.time, controleffs[:,1,0], linewidth=2.0, color='tab:orange', label="lin y") # plot linear y errfort
-        ax_controlefforts.plot(self.time, controleffs[:,2,0], linewidth=2.0, color='tab:green', label="lin z") # plot linear z errfort
-        ax_controlefforts.plot(self.time, controleffs[:,3,0], linewidth=2.0, color='tab:red', label="ang x") # plot angular x errfort
-        ax_controlefforts.plot(self.time, controleffs[:,4,0], linewidth=2.0, color='tab:purple', label="ang y") # plot angular y errfort
-        ax_controlefforts.plot(self.time, controleffs[:,5,0], linewidth=2.0, color='tab:cyan', label="ang z") # plot angular z errfort
-        ax_controlefforts.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        if not (np.array(self.controlefforts)==None).all():
+            controleffs=np.zeros((0,6,1)) # initialize 3D array (zero length stack of 2D 4 by 2 matrices)
+            for controleff_twist in self.controlefforts:
+                # if controleff_twist == None:
+                #     continue
+                controleff = np.zeros((1,6,1))
+                controleff[0,0,0] = controleff_twist.linear.x
+                controleff[0,1,0] = controleff_twist.linear.y
+                controleff[0,2,0] = controleff_twist.linear.z
+                controleff[0,3,0] = controleff_twist.angular.x
+                controleff[0,4,0] = controleff_twist.angular.y
+                controleff[0,5,0] = controleff_twist.angular.z
+                controleffs = np.append(controleffs,controleff, axis=0) # stack the matrices
+            ax_controlefforts.plot(self.time, controleffs[:,0,0], linewidth=2.0, color='tab:blue', label="lin x") # plot linear x errfort
+            ax_controlefforts.plot(self.time, controleffs[:,1,0], linewidth=2.0, color='tab:orange', label="lin y") # plot linear y errfort
+            ax_controlefforts.plot(self.time, controleffs[:,2,0], linewidth=2.0, color='tab:green', label="lin z") # plot linear z errfort
+            ax_controlefforts.plot(self.time, controleffs[:,3,0], linewidth=2.0, color='tab:red', label="ang x") # plot angular x errfort
+            ax_controlefforts.plot(self.time, controleffs[:,4,0], linewidth=2.0, color='tab:purple', label="ang y") # plot angular y errfort
+            ax_controlefforts.plot(self.time, controleffs[:,5,0], linewidth=2.0, color='tab:cyan', label="ang z") # plot angular z errfort
+            ax_controlefforts.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
     ### SUBPLOT 3 ### : Plot the 3D path of the object center
         # check if data is available
-        if (np.array(self.poses)==None).all():
-            response = TriggerResponse()
-            response.success = False
-            response.message = "Plot aborted - Some of the data required for the plots is missing"
-            return response
-
-        positions = np.zeros((0,3,1))
-        for pose in self.poses:
-            position = np.array([pose.position.x, pose.position.y, pose.position.z]).reshape((1,3,1))
-            positions = np.append(positions, position, axis=0)
-        X = positions[:,0,0]
-        Y = positions[:,1,0]
-        Z = positions[:,2,0]
-        ax_poses.plot(X, Y, Z, color='tab:red')
-        # Create cubic bounding box to simulate equal aspect ratio
-        max_range = np.array([X.max()-X.min(), Y.max()-Y.min(), Z.max()-Z.min()]).max()
-        Xb = 0.5*max_range*np.mgrid[-1:2:2,-1:2:2,-1:2:2][0].flatten() + 0.5*(X.max()+X.min())
-        Yb = 0.5*max_range*np.mgrid[-1:2:2,-1:2:2,-1:2:2][1].flatten() + 0.5*(Y.max()+Y.min())
-        Zb = 0.5*max_range*np.mgrid[-1:2:2,-1:2:2,-1:2:2][2].flatten() + 0.5*(Z.max()+Z.min())
-        # Comment or uncomment following both lines to test the fake bounding box:
-        for xb, yb, zb in zip(Xb, Yb, Zb):
-            ax_poses.plot([xb], [yb], [zb], 'w')
+        if not (np.array(self.poses)==None).all():
+            positions = np.zeros((0,3,1))
+            for pose in self.poses:
+                position = np.array([pose.position.x, pose.position.y, pose.position.z]).reshape((1,3,1))
+                positions = np.append(positions, position, axis=0)
+            X = positions[:,0,0]
+            Y = positions[:,1,0]
+            Z = positions[:,2,0]
+            ax_poses.plot(X, Y, Z, color='tab:red')
+            # Create cubic bounding box to simulate equal aspect ratio
+            max_range = np.array([X.max()-X.min(), Y.max()-Y.min(), Z.max()-Z.min()]).max()
+            Xb = 0.5*max_range*np.mgrid[-1:2:2,-1:2:2,-1:2:2][0].flatten() + 0.5*(X.max()+X.min())
+            Yb = 0.5*max_range*np.mgrid[-1:2:2,-1:2:2,-1:2:2][1].flatten() + 0.5*(Y.max()+Y.min())
+            Zb = 0.5*max_range*np.mgrid[-1:2:2,-1:2:2,-1:2:2][2].flatten() + 0.5*(Z.max()+Z.min())
+            # Comment or uncomment following both lines to test the fake bounding box:
+            for xb, yb, zb in zip(Xb, Yb, Zb):
+                ax_poses.plot([xb], [yb], [zb], 'w')
 
     # Save figure
         Path.cwd().joinpath('plots').mkdir(parents=False, exist_ok=True)
