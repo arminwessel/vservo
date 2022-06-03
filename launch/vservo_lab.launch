@@ -1,26 +1,31 @@
 <launch>
+<!--Topic Remappings-->
+  <remap from="camera/color/image_raw" to="camera_node/image_raw" /> <!--Remap Camera Image-->
+  <remap from="cmd_vel" to="depthVS_ee_cart_vel" /> <!--Remap Twist of Control Velocities-->
+  <remap from="TODO" to="current_pose" /> <!--Remap Robot Pose-->
+
 <!--Arguments-->
   <arg name="video_device" default="/dev/video0" /> <!--Argument can be set in roslaunch, if not default is used-->
   <arg name="L_type" default="MIXED" /> <!--Argument can be set in roslaunch, if not default is used-->
 
 <!--Parameters-->
-  <rosparam command="load" file="$(find vservo)/config/camera_param.yaml" /> <!--Camera Parameters from Calibration-->
-
+  <!--rosparam command="load" file="$(find vservo)/config/camera_param.yaml" /--> <!--Camera Parameters from Calibration-->
+  <rosparam command="load" file="TODO" /> 
   <param name="video_device" value="$(arg video_device)" /> <!--Use passed argument (or default as param)-->
   <param name="pixel_format" value="mjpeg" />
   <param name="camera_frame_id" value="usb_cam" />
   <param name="io_method" value="mmap"/>
-  <param name="aruco_marker_length" value="0.08"/>
+  <param name="aruco_marker_length" value="0.12"/>
   <param name="L_type" value="$(arg L_type)"/> <!--Use passed argument (or default as param)-->
 
   <param name="target" value="40,40,-40,40,-40,-40,40,-40"/> <!--Array as string, normalized image coordinates-->
 
-  <param name="lambda_c" value="0.05"/> 
+  <param name="lambda_c" value="-0.1"/>
 <!--Nodes-->
   <node name="ibvservo_node" pkg="vservo" type="ibvservo" required="true"/>
   <node name="detector_node" pkg="vservo" type="aruco_detector" />
   <node name="visualizer_node" pkg="vservo" type="visualize_control" />
-  <node name="camera_node" pkg="usb_cam" type="usb_cam_node" />
+  <!-- CAMERA NODE TO BE LAUNCHED -->
 
 <!--RQT for visualization-->
   <node name="rqt_gui" pkg="rqt_gui" type="rqt_gui" />
