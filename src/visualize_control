@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 from pathlib import Path
 from mpl_toolkits.mplot3d import Axes3D
+import ros_numpy
 
 class ControlVisualizer():
     """
@@ -87,11 +88,9 @@ class ControlVisualizer():
 
     def image_received(self, image_message : Image) -> None:
         # generate overlay visualization
-        if not hasattr(self, 'bridge'):
-            return
-        frame = self.bridge.imgmsg_to_cv2(image_message, desired_encoding='rgb8') # convert ROS image to opencv
+        frame = ros_numpy.numpify(image_message)
         overlay_frame = self.overlay_image(frame.copy())
-        self._pub.publish(self.bridge.cv2_to_imgmsg(overlay_frame, encoding="rgb8")) # convert opencv image to ROS
+        self._pub.publish(ros_numpy.msgify(Image, overlay_frame.astype(np.uint8), encoding='rgb8')) # convert opencv image to ROS
         return
 
         
