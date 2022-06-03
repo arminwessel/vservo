@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Image Based Visual Servoing
 """
@@ -9,6 +9,7 @@ import numpy as np
 from geometry_msgs.msg import Twist, Pose
 from vservo.msg import  Point2DArray
 from std_msgs.msg import Float32
+from std_srvs.srv import SetBool, SetBoolResponse
 import utils
 
 class IBVSController():
@@ -23,7 +24,10 @@ class IBVSController():
         self._pub = rospy.Publisher("cmd_vel", Twist, queue_size=1) # create publisher
         self._sub = rospy.Subscriber("ibvs_features", Point2DArray, self.feature_update_received) # create subscriber
         self._sub2 = rospy.Subscriber("estimated_pose", Pose, self.update_pose) # create subscriber
+
+        self._serv = rospy.Service("ibvs_controller_active", SetBool, self.set_controller_active)
         
+        self.controller_active=True # Controller is turned on by default
 
         _camera_matrix_dict= rospy.get_param("camera_matrix")
         _camera_matrix = np.array(_camera_matrix_dict['data'])
@@ -42,7 +46,20 @@ class IBVSController():
         _lambda_c = float(_lambda_c_str)
         self.lambda_c=_lambda_c
 
-        
+    def set_controller_active(self, data) -> SetBoolResponse:
+        try:
+            response = SetBoolResponse() # init response
+            self.controller_active=data.data
+            print(self.controller_active)
+        except:
+            response.success = False
+            response.message="An exception occured while setting controller"
+            return response
+        else: 
+            response.success = True
+            response.message="Success: IBVS Controller is now {status}".format(status="active" if self.controller_active else "inactive")
+            return response
+
 
     def calc_error(self) -> np.array:
         """
@@ -156,25 +173,28 @@ class IBVSController():
         """
         invert L_hat (MP Pseudoinverse) and calculate joint velocities
         """
-        velocity_cmd = Twist()                      # initialize empty Twist message
+        velocity_cmd = Twist() # initialize empty Twist message
 
-        self.update_interaction_matrix()
+        if not self.controller_active: # control is disabled
+            _vel=np.zeros(6) # disables control by setting all velocities to zero
+        else: # control is enabled
+            self.update_interaction_matrix()
 
-        if np.array(self.L == None).any(): # If no interaction matrix is defined, set command velocity to all zeros
-            print(self.L)
-            _vel=np.zeros(6)
-            rospy.logdebug("Interaction Matrix contains None, cmd_vel set to zero")
-        else:
-            self.L_inv = np.linalg.pinv(self.L)
+            if np.array(self.L == None).any(): # If no interaction matrix is defined, set command velocity to all zeros
+                print(self.L)
+                _vel=np.zeros(6)
+                rospy.logdebug("Interaction Matrix contains None, cmd_vel set to zero")
+            else:
+                self.L_inv = np.linalg.pinv(self.L) # pseudonverse of interaction matrix
 
-            _f_x = self.camera_matrix[0,0]
-            _f_y = self.camera_matrix[1,1]
+                _f_x = self.camera_matrix[0,0]
+                _f_y = self.camera_matrix[1,1]
 
-            _e = self.calc_error()     # calculate error in pixel coordinates [[du1, dv1],  [du2, dv2],  [du3, dv3], [du4, dv4]]
-            _e = np.divide(_e, np.repeat([[_f_x, _f_y]], 4, axis=0)) # calculate error in normalized image plane
-            _e_flat = _e.flatten()                           # flaten error [dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4]
+                _e = self.calc_error()     # calculate error in pixel coordinates [[du1, dv1],  [du2, dv2],  [du3, dv3], [du4, dv4]]
+                _e = np.divide(_e, np.repeat([[_f_x, _f_y]], 4, axis=0)) # calculate error in normalized image plane
+                _e_flat = _e.flatten()                           # flaten error [dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4]
 
-            _vel = - self.lambda_c * np.dot(self.L_inv, _e_flat) # calculate velocity command vector
+                _vel = - self.lambda_c * np.dot(self.L_inv, _e_flat) # calculate velocity command vector
 
         # pack the Twist message
         velocity_cmd.linear.x = _vel[0]
@@ -195,7 +215,7 @@ if __name__ == "__main__":
 
     controller = IBVSController()  # create controller instance
 
-    controller_rate = rospy.Rate(100) # 10hz
+    controller_rate = rospy.Rate(100) # How many times the control is calculated each second (in Hz)
     pub_timeslot = rospy.Publisher("timeslot_usage", Float32, queue_size=1) # create publisher
     while not rospy.is_shutdown():
         t0 = rospy.get_time()

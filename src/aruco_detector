@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Node to find corners of ArUcCo marker
 """
@@ -6,12 +6,11 @@ import rospy
 import numpy as np
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Point, Quaternion, Pose
-from vservo.msg import Point2D, Point2DArray
+from vservo.msg import Point2DArray
 import cv2
-from aruco_dict import ARUCO_DICT
-from cv_bridge import CvBridge
 import utils
 from scipy.spatial.transform import Rotation
+import ros_numpy
 
 class ArucoDetector():
     """
@@ -25,9 +24,7 @@ class ArucoDetector():
         self._pub = rospy.Publisher("ibvs_features", Point2DArray, queue_size=1) # create publisher
         self._pub2 = rospy.Publisher("estimated_pose", Pose, queue_size=1) # create publisher
         self._sub = rospy.Subscriber("camera_node/image_raw", Image, self.image_received) # create subscriber
-        self._type = "DICT_5X5_50"
-        self.bridge = CvBridge()
-        self.arucoDict = cv2.aruco.Dictionary_get(ARUCO_DICT[self._type])
+        self.arucoDict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_250) # All 5by5 Markers
         self.arucoParams = cv2.aruco.DetectorParameters_create()
 
         self.aruco_length = float(rospy.get_param("aruco_marker_length"))
@@ -43,7 +40,7 @@ class ArucoDetector():
 
 
     def image_received(self, image_message : Image) -> None:
-        cv_image = self.bridge.imgmsg_to_cv2(image_message, desired_encoding='passthrough')
+        cv_image = ros_numpy.numpify(image_message)
         self.detect_markers(cv_image)
         self.estimate_pose()
 
