@@ -146,19 +146,20 @@ class ControlVisualizer():
 
 class ControlDataLogger():
     """
-    Collect sontrol data over time:
-         Cornerpoints, Control Effort and 3D Pose
+    Collect control data over time:
+    Cornerpoints, Control Effort and 3D Pose
     Create plot from collected data
     """
-    def __init__(self) -> None:
+    def __init__(self, cornerpoints=[], controlefforts=[], poses=[], time=[]) -> None:
         """
-        Constructor
+        If data is passed to the function (e.g. data saved from another experiment) the data is loaded
+        IF no data is passed, empty lists are initialized waiting for the update_data method to fill them
         """
         # store data in list, will be appended in each step
-        self.cornerpoints = []
-        self.controlefforts = []
-        self.poses = []
-        self.time = []
+        self.cornerpoints = cornerpoints
+        self.controlefforts = controlefforts
+        self.poses = poses
+        self.time = time
         
     def update_data(self, cornerpoint : Point2DArray, controleffort : Twist, pose : Pose) -> None:
         """
@@ -295,12 +296,31 @@ class ControlDataLogger():
         response.success = True
         response.message = "Plot saved to {}".format(plotfile)
         return response
+
+    def export_system_data(self) -> None:
+        # Create Filepath
+        Path.cwd().joinpath('visual_data').mkdir(parents=False, exist_ok=True)
+        picklefile = str(Path.cwd().joinpath('visual_data', 'ControlDataLogger_{}.p'.format(int(rospy.get_time()))))
+
+        # Create dictionary object to serialize
+        data={"cornerpoints" : self.cornerpoints, 
+              "controlefforts" : self.controlefforts,
+              "poses" : self.poses,
+              "time" : self.time}
+              
+        # dump data into pickle file
+        pickle.dump(data, open(picklefile, "wb" ))
+        rospy.loginfo("Dumped all Data in ControlDataLogger into {}".format(picklefile))
+        
        
+
 
 # Main function.
 if __name__ == "__main__":
     rospy.init_node('visualize_control') # init ROS node named visualize_control
     rospy.loginfo('#Node visualize_control running#')
-    vizualizer = ControlVisualizer()  # create instance
+    
+    visualizer = ControlVisualizer()  # create instance
+    rospy.on_shutdown(visualizer.dataLogger.export_system_data)
     
     rospy.spin()
