@@ -13,7 +13,6 @@ from geometry_msgs.msg import Pose, Twist
 from std_msgs.msg import String
 from std_srvs.srv import Trigger, TriggerResponse
 import cv2
-from aruco_dict import ARUCO_DICT
 from cv_bridge import CvBridge
 import utils
 import matplotlib.pyplot as plt

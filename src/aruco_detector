@@ -8,7 +8,6 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import Point, Quaternion, Pose
 from vservo.msg import Point2D, Point2DArray
 import cv2
-from aruco_dict import ARUCO_DICT
 from cv_bridge import CvBridge
 import utils
 from scipy.spatial.transform import Rotation as R
@@ -25,9 +24,8 @@ class ArucoDetector():
         self._pub = rospy.Publisher("ibvs_features", Point2DArray, queue_size=1) # create publisher
         self._pub2 = rospy.Publisher("estimated_pose", Pose, queue_size=1) # create publisher
         self._sub = rospy.Subscriber("camera_node/image_raw", Image, self.image_received) # create subscriber
-        self._type = "DICT_5X5_50"
+        self.arucoDict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_250) # All 5by5 Markers
         self.bridge = CvBridge()
-        self.arucoDict = cv2.aruco.Dictionary_get(ARUCO_DICT[self._type])
         self.arucoParams = cv2.aruco.DetectorParameters_create()
 
         self.aruco_length = float(rospy.get_param("aruco_marker_length"))
