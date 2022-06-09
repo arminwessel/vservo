@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Pose Based Visual Servoing
 """
@@ -11,6 +11,9 @@ from geometry_msgs.msg import Twist, Pose
 from std_msgs.msg import Float32
 import utils
 from scipy.spatial.transform import Rotation
+from pytransform3d import rotations as pr
+from pytransform3d import transformations as pt
+from pytransform3d.transform_manager import TransformManager
 
 class PBVSController():
     """
@@ -58,11 +61,33 @@ class PBVSController():
         if PBVS_type == "PBVS1": 
             # test if all data is given and call function to calculate velocities
             # TODO
-            pass
+            c = self.calc_pbvs_1()
+
+            cmd_vel=Twist()
+            cmd_vel.linear.x=c[0]
+            cmd_vel.linear.y=c[1]
+            cmd_vel.linear.z=c[2]
+            cmd_vel.angular.x=c[3]
+            cmd_vel.angular.y=c[4]
+            cmd_vel.angular.z=c[5]
+
+            return cmd_vel
+            
         elif PBVS_type == "PBVS2": 
             # test if all data is given and call function to calculate velocities
             # TODO
-            pass
+            
+            c = self.calc_pbvs_2()
+
+            cmd_vel=Twist()
+            cmd_vel.linear.x=c[0]
+            cmd_vel.linear.y=c[1]
+            cmd_vel.linear.z=c[2]
+            cmd_vel.angular.x=c[3]
+            cmd_vel.angular.y=c[4]
+            cmd_vel.angular.z=c[5]
+
+            return cmd_vel
         else:
             rospy.logerr("No method or unknown method specified for PBVS type")
 
@@ -79,12 +104,18 @@ class PBVSController():
         """
         Calculate velocities based on poses of the object from current and desired camera position
         """
-        pose_desired = utils.get_pose_from_target_coordinates(self.target) # get pose from target corner specification
+        # Find position of marker described in desired camera coordinate system
+
+        # get pose from target corner specification
+        norm_camera_matrix=np.eye(3) # camera matrix for normalized image plane
+        norm_distortion_coefficients = np.zeros(5).reshape((1,5)) # ideal camera - all zero distortions
+        pose_desired = utils.get_pose_from_coordinates(coordinates=self.target, 
+                    camera_matrix=norm_camera_matrix, camera_distortion=norm_distortion_coefficients) 
         _pos = pose_desired.position # unpack t from pose
         t_0_desired = np.array([_pos.x, _pos.y, _pos.z]) 
         
-
-        _pos = self.pose.position # unpack t from pose
+        # Find position of marker described in current camera coordinate system
+        _pos = self.pose.position # unpack t from current estimated camera pose
         t_0_current = np.array([_pos.x, _pos.y, _pos.z])
 
         _quat = self.pose.orientation # unpack theta_u from pose
@@ -102,7 +133,24 @@ class PBVSController():
         """
         Calculate velocities based on pose of current camera in reference desired camera position
         """
-        pose_desired = utils.get_pose_from_target_coordinates(self.target)
+        #  # get pose from target corner specification
+        # norm_camera_matrix=np.eye(3) # camera matrix for normalized image plane
+        # norm_distortion_coefficients = np.zeros(5).reshape((1,5)) # ideal camera - all zero distortions
+        # pose_desired = utils.get_pose_from_coordinates(coordinates=self.target, 
+        #             camera_matrix=norm_camera_matrix, camera_distortion=norm_distortion_coefficients) 
+
+        ####################################################################
+        pose_desired = Pose()
+        pose_desired.position.x = 0
+        pose_desired.position.y = 0
+        pose_desired.position.z = 1
+
+        [pose_desired.orientation.x, 
+        pose_desired.orientation.y, 
+        pose_desired.orientation.z, 
+        pose_desired.orientation.w] = pr.quaternion_from_axis_angle([1,0,0,0.0*np.pi])
+
+
         _pos = pose_desired.position
         t_0_desired = np.array([_pos.x, _pos.y, _pos.z]) 
         
@@ -111,8 +159,12 @@ class PBVSController():
         t_0_current = np.array([_pos.x, _pos.y, _pos.z])
 
         _quat = self.pose.orientation
-        _r = Rotation.from_quat(np.array([_quat.x, _quat.y, _quat.z, _quat.w])) # Rotation object from SciPy
-        theta_u = Rotation.as_rotvec(_r)
+        try:
+            _r = Rotation.from_quat(np.array([_quat.x, _quat.y, _quat.z, _quat.w])) # Rotation object from SciPy
+            theta_u = Rotation.as_rotvec(_r)
+        except:
+            print('error in scipy')
+            theta_u = np.array([0,0,0])
 
         v_c = -self.lambda_c * (np.subtract(t_0_desired, t_0_current)+np.cross(t_0_current, theta_u))
         w_c = -self.lambda_c * (theta_u)
@@ -120,89 +172,6 @@ class PBVSController():
         return np.append(v_c, w_c)
 
 
-
-    def calc_L_matrix_current(self) -> np.array:
-        """
-        Approximate L by using only the normalized image coordinates of the current feature
-        """
-        L = np.repeat(None,6).reshape((1,6)) # set L as [[None, None, .. , None]] 
-        
-        if hasattr(self.current_features, 'points'): # check if features are available
-            if len(self.current_features.points)>0:        
-                Z = self.get_Z()
-                if Z == None:
-                    rospy.logwarn("L could not be updated because distance Z is None")
-                    return L
-                L = np.zeros([0,6])
-                _array_current = utils.conv_Point2DArray_2_nparray(self.current_features)
-                normalized_points = utils.conv_pix_2_norm(_array_current, self.camera_matrix)
-                for point in normalized_points: 
-                    [x, y] = point
-                    L = np.append(L,[[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]],axis=0)
-                return L
-        
-        rospy.logdebug_once("L could not be updated because current features are missing")
-        return L
-
-    def calc_L_matrix_target(self) -> np.array:
-        """
-        Approximate L by using only the normalized image coordinates of the target feature
-        """
-        L = np.repeat(None,6).reshape((1,6)) # set L as [[None, None, .. , None]] 
-        
-        if hasattr(self.target, 'points'): # check if features are available
-            if len(self.target.points)>0:        
-                Z = self.get_Z()
-                if Z == None:
-                    rospy.logwarn("L could not be updated because distance Z is None")
-                    return L
-                L = np.zeros([0,6])
-                _array_target = utils.conv_Point2DArray_2_nparray(self.target)
-                normalized_points = utils.conv_pix_2_norm(_array_target, self.camera_matrix)
-                for point in normalized_points: 
-                    [x, y] = point
-                    L = np.append(L,[[-1/Z, 0, x/Z, x*y, -(1+x*x), y], [0, -1/Z, y/Z, 1+y*y, -x*y, -x]],axis=0)
-                return L
-        
-        rospy.logdebug_once("L could not be updated because current features are missing")
-        return L
-        
-
-
-    def calc_velocities(self) -> Twist:
-        """
-        invert L_hat (MP Pseudoinverse) and calculate joint velocities
-        """
-        velocity_cmd = Twist()                      # initialize empty Twist message
-
-        self.update_interaction_matrix()
-
-        if np.array(self.L == None).any(): # If no interaction matrix is defined, set command velocity to all zeros
-            print(self.L)
-            _vel=np.zeros(6)
-            rospy.logdebug("Interaction Matrix contains None, cmd_vel set to zero")
-        else:
-            self.L_inv = np.linalg.pinv(self.L)
-
-            _f_x = self.camera_matrix[0,0]
-            _f_y = self.camera_matrix[1,1]
-
-            _e = self.calc_error()     # calculate error in pixel coordinates [[du1, dv1],  [du2, dv2],  [du3, dv3], [du4, dv4]]
-            _e = np.divide(_e, np.repeat([[_f_x, _f_y]], 4, axis=0)) # calculate error in normalized image plane
-            _e_flat = _e.flatten()                           # flaten error [dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4]
-
-            _vel = - self.lambda_c * np.dot(self.L_inv, _e_flat) # calculate velocity command vector
-
-        # pack the Twist message
-        velocity_cmd.linear.x = _vel[0]
-        velocity_cmd.linear.y = _vel[1]
-        velocity_cmd.linear.z = _vel[2]
-        velocity_cmd.angular.x = _vel[3]
-        velocity_cmd.angular.y = _vel[4]
-        velocity_cmd.angular.z = _vel[5]
-
-        return velocity_cmd
-        
 
 
 # Main function.

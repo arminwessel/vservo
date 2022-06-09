@@ -19,8 +19,11 @@
   <param name="target" value="40,40,-40,40,-40,-40,40,-40"/> <!--Array as string, normalized image coordinates-->
 
   <param name="lambda_c" value="-0.1"/>
+
+  <param name="PBVS_type" value="PBVS2"/>
 <!--Nodes-->
-  <node name="ibvservo_node" pkg="vservo" type="ibvservo" required="true"/>
+  <!-- <node name="ibvservo_node" pkg="vservo" type="ibvservo" required="true"/> -->
+  <node name="pbvservo_node" pkg="vservo" type="pbvservo" required="true"/>
   <node name="detector_node" pkg="vservo" type="aruco_detector" />
   <node name="visualizer_node" pkg="vservo" type="visualize_control" />
   <node name="camera_node" pkg="usb_cam" type="usb_cam_node" />
