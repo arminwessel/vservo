@@ -70,15 +70,35 @@ class ArucoDetector():
     
     def estimate_pose(self):
         """
-        Estimates the pose of the marker with respect to the camera
+        Use the built-in pose estimation of opencv to estimate the pose of the aruco marker found by detect_markers
         """
-        if not (np.array(self.corners)==None).any(): # only compute pose when none of the entries in self.corners is None
-            pose=utils.get_pose_from_coordinates(self.corners[0], self.camera_matrix, self.aruco_length, self.camera_distortion)
-            self._pub2.publish(pose)
+        if np.array(self.corners==None).any(): 
+            return
 
-            # rvecs, tvecs, _objPoints = cv2.aruco.estimatePoseSingleMarkers(self.corners[0], self.aruco_length, 
-            # self.camera_matrix, self.camera_distortion)
-            # rospy.logerr('rvecs: {}    tvecs: {}'.format(str(rvecs), str(tvecs)))
+        rvecs, tvecs, _objPoints = cv2.aruco.estimatePoseSingleMarkers(self.corners[0], 
+            self.aruco_length, 
+            self.camera_matrix, 
+            self.camera_distortion)
+        
+        
+        # initiate geometry_msgs objects
+        trans = Point()
+        rot = Quaternion()
+        pose = Pose()
+
+        # create Point representing translation of estimated pose
+        [trans.x, trans.y, trans.z] = tvecs[0][0]
+
+        # create Quaternion representing rotation of estimated pose
+        _r = Rotation.from_rotvec(rvecs[0][0]) # Rotation object from SciPy
+        [rot.x, rot.y, rot.z, rot.w] = Rotation.as_quat(_r)
+
+        # compose and publish Pose object
+        pose.position=trans
+        pose.orientation=rot
+        # rospy.logerr('t'+str(tvecs)+'   r:'+str(rvecs))
+        
+        self._pub2.publish(pose)
 
 
 # Main function.

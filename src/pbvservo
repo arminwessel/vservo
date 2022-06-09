@@ -145,9 +145,9 @@ class PBVSController():
         pose_desired.position.y = 0
         pose_desired.position.z = 1
 
-        [pose_desired.orientation.x, 
-        pose_desired.orientation.y, 
-        pose_desired.orientation.z, 
+        [pose_desired.orientation.x,
+        pose_desired.orientation.y,
+        pose_desired.orientation.z,
         pose_desired.orientation.w] = pr.quaternion_from_axis_angle([1,0,0,0.0*np.pi])
 
 
