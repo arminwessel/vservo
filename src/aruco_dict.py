@@ -1,1 +1,0 @@
-../scripts/aruco_dict.py
