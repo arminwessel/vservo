@@ -11,6 +11,7 @@ import cv2
 import utils
 from scipy.spatial.transform import Rotation
 import ros_numpy
+import tf
 
 class ArucoDetector():
     """
@@ -28,6 +29,8 @@ class ArucoDetector():
         self.arucoParams = cv2.aruco.DetectorParameters_create()
 
         self.aruco_length = float(rospy.get_param("aruco_marker_length"))
+
+        self.tf_br=tf.TransformBroadcaster()
 
         _camera_matrix_dict= rospy.get_param("camera_matrix")
         _camera_matrix = np.array(_camera_matrix_dict['data'])
@@ -71,6 +74,7 @@ class ArucoDetector():
     def estimate_pose(self):
         """
         Use the built-in pose estimation of opencv to estimate the pose of the aruco marker found by detect_markers
+        Send transformation to tf tree
         """
         if np.array(self.corners==None).any(): 
             return
@@ -84,7 +88,6 @@ class ArucoDetector():
         # initiate geometry_msgs objects
         trans = Point()
         rot = Quaternion()
-        pose = Pose()
 
         # create Point representing translation of estimated pose
         [trans.x, trans.y, trans.z] = tvecs[0][0]
@@ -93,12 +96,12 @@ class ArucoDetector():
         _r = Rotation.from_rotvec(rvecs[0][0]) # Rotation object from SciPy
         [rot.x, rot.y, rot.z, rot.w] = Rotation.as_quat(_r)
 
-        # compose and publish Pose object
-        pose.position=trans
-        pose.orientation=rot
-        # rospy.logerr('t'+str(tvecs)+'   r:'+str(rvecs))
-        
-        self._pub2.publish(pose)
+        self.tf_br.sendTransform((trans.x, trans.y, trans.z),
+                         (rot.x, rot.y, rot.z, rot.w),
+                         rospy.Time.now(),
+                         "camera",
+                         "marker")
+
 
 
 # Main function.

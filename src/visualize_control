@@ -55,8 +55,9 @@ class ControlVisualizer():
         self._serv = rospy.Service("generate_plot", Trigger, self.dataLogger.plot_system_behavior)
 
         _target_str = rospy.get_param("target")
-        _target = np.reshape(np.fromstring(_target_str, dtype=int, sep=','),(4,2))
-        self.target_points=utils.conv_norm_2_pix(_target, self.camera_matrix)
+        _target = np.reshape(np.fromstring(_target_str, dtype=float, sep=','),(4,2))
+        self.target_points=np.array(utils.conv_norm_2_pix(_target, self.camera_matrix)).astype(int)
+        pass
 
         
 

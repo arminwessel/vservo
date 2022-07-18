@@ -6,7 +6,7 @@ Pose Based Visual Servoing
 from attr import has
 import rospy
 import numpy as np
-from geometry_msgs.msg import Twist, Pose, Point, Quaternion
+from geometry_msgs.msg import Twist, Pose
 #from vservo.msg import  Point2DArray
 from std_msgs.msg import Float32
 import utils
@@ -14,8 +14,6 @@ from scipy.spatial.transform import Rotation
 from pytransform3d import rotations as pr
 from pytransform3d import transformations as pt
 from pytransform3d.transform_manager import TransformManager
-import tf
-import cv2
 
 class PBVSController():
     """
@@ -29,18 +27,13 @@ class PBVSController():
         self._pub = rospy.Publisher("cmd_vel", Twist, queue_size=1) # create publisher
         self._sub = rospy.Subscriber("estimated_pose", Pose, self.update_pose) # create subscriber
         
-        self.tf_li = tf.TransformListener()
-        self.tf_br = tf.TransformBroadcaster()
 
         _camera_matrix_dict= rospy.get_param("camera_matrix")
         _camera_matrix = np.array(_camera_matrix_dict['data'])
         self.camera_matrix = np.reshape(_camera_matrix, (_camera_matrix_dict['rows'], _camera_matrix_dict['cols']))
         
-        # import target corners from param
         _target_str = rospy.get_param("target")
-        self.target = np.reshape(np.fromstring(_target_str, dtype=float, sep=','),(4,2))
-        # calculate pose from imported corners and send to tftree
-        self.calc_desired_camera_frame()
+        self.target = np.reshape(np.fromstring(_target_str, dtype=int, sep=','),(4,2))
 
         self.current_features = None
 
@@ -49,8 +42,6 @@ class PBVSController():
         _lambda_c_str = rospy.get_param("lambda_c")
         _lambda_c = float(_lambda_c_str)
         self.lambda_c=_lambda_c
-
-        
 
 
         
@@ -107,68 +98,33 @@ class PBVSController():
         """
         self.pose = data
 
-    def calc_desired_camera_frame(self) -> None:
-        """
-        Given the corners describing the desired marker position, calculate the frame of the desired camera
-        """
-        coordinates=self.target
-        norm_camera_matrix=np.eye(3) # camera matrix for normalized image plane
-        norm_distortion_coefficients = np.zeros(5).reshape((1,5)) # ideal camera - all zero distortions
 
-        _marker_len = rospy.get_param("aruco_marker_length") # get size of aruco marker from params
-        marker_len = float(_marker_len)
-
-        # Use CV2.aruco's method to estimate the pose
-        rvecs, tvecs, _objPoints = cv2.aruco.estimatePoseSingleMarkers(np.array([coordinates]).astype(np.float32), 
-                                                                       np.float32(marker_len), 
-                                                                       np.array(norm_camera_matrix).astype(np.float32), 
-                                                                       np.array(norm_distortion_coefficients).astype(np.float32))
         
-        # initiate geometry_msgs objects
-        _trans = Point()
-        _rot = Quaternion()
-
-        # create Point representing translation of estimated pose
-        [_trans.x, _trans.y, _trans.z] = tvecs[0][0]
-
-        # create Quaternion representing rotation of estimated pose
-        _r = Rotation.from_rotvec(rvecs[0][0]) # Rotation object from SciPy
-        [_rot.x, _rot.y, _rot.z, _rot.w] = Rotation.as_quat(_r) # compute quaternion
-        #print('trans: '+str(_trans)+'\n\nrot: '+str(_rot))
-
-        self.tf_br.sendTransform((_trans.x, _trans.y, _trans.z),
-                         (_rot.x, _rot.y, _rot.z, _rot.w),
-                         rospy.Time.now(),
-                         "marker",
-                         "camera_desired")
-        
-
     def calc_pbvs_1(self) -> np.array:
         """
-        Calculate velocities based on poses of the object in current and desired camera frame
+        Calculate velocities based on poses of the object from current and desired camera position
         """
-        self.calc_desired_camera_frame()
-        try:
-            (_trans,_quat) = self.tf_li.lookupTransform("/marker", "/camera", rospy.Time(0))
-            (_trans_d,_quat_d) = self.tf_li.lookupTransform("/marker", "/camera_desired", rospy.Time(0))
-            
-        except:
-            return np.zeros(6)
+        # Find position of marker described in desired camera coordinate system
 
-        # bring obtained transformations into form required by control law
-        t_0 = _trans # translations
-        t_0_d = _trans_d
+        # get pose from target corner specification
+        norm_camera_matrix=np.eye(3) # camera matrix for normalized image plane
+        norm_distortion_coefficients = np.zeros(5).reshape((1,5)) # ideal camera - all zero distortions
+        pose_desired = utils.get_pose_from_coordinates(coordinates=self.target, 
+                    camera_matrix=norm_camera_matrix, camera_distortion=norm_distortion_coefficients) 
+        _pos = pose_desired.position # unpack t from pose
+        t_0_desired = np.array([_pos.x, _pos.y, _pos.z]) 
         
-        # rotations as angle-axis (theta u)
-        _r = Rotation.from_quat(np.array(_quat)) # Rotation object from SciPy
+        # Find position of marker described in current camera coordinate system
+        _pos = self.pose.position # unpack t from current estimated camera pose
+        t_0_current = np.array([_pos.x, _pos.y, _pos.z])
+
+        _quat = self.pose.orientation # unpack theta_u from pose
+        _r = Rotation.from_quat(np.array([_quat.x, _quat.y, _quat.z, _quat.w])) # Rotation object from SciPy
         theta_u = Rotation.as_rotvec(_r) # use rotation object to convert to angle axis representation
 
-        # _r_d = Rotation.from_quat(np.array(_quat_d)) # Rotation object from SciPy
-        theta_u_d = Rotation.as_rotvec(_r) # use rotation object to convert to angle axis representation
-
         # implement control law
-        v_c = -self.lambda_c * (np.subtract(t_0_d, t_0)+np.cross(t_0, np.subtract(theta_u_d, theta_u)))
-        w_c = -self.lambda_c * np.subtract(theta_u_d, theta_u)
+        v_c = -self.lambda_c * (np.subtract(t_0_desired, t_0_current)+np.cross(t_0_current, theta_u))
+        w_c = -self.lambda_c * (theta_u)
 
         return np.append(v_c, w_c)
 
@@ -177,19 +133,40 @@ class PBVSController():
         """
         Calculate velocities based on pose of current camera in reference desired camera position
         """
-        self.calc_desired_camera_frame()
+        #  # get pose from target corner specification
+        # norm_camera_matrix=np.eye(3) # camera matrix for normalized image plane
+        # norm_distortion_coefficients = np.zeros(5).reshape((1,5)) # ideal camera - all zero distortions
+        # pose_desired = utils.get_pose_from_coordinates(coordinates=self.target, 
+        #             camera_matrix=norm_camera_matrix, camera_distortion=norm_distortion_coefficients) 
+
+        ####################################################################
+        pose_desired = Pose()
+        pose_desired.position.x = 0
+        pose_desired.position.y = 0
+        pose_desired.position.z = 1
+
+        [pose_desired.orientation.x,
+        pose_desired.orientation.y,
+        pose_desired.orientation.z,
+        pose_desired.orientation.w] = pr.quaternion_from_axis_angle([1,0,0,0.0*np.pi])
+
+
+        _pos = pose_desired.position
+        t_0_desired = np.array([_pos.x, _pos.y, _pos.z]) 
+        
+
+        _pos = self.pose.position
+        t_0_current = np.array([_pos.x, _pos.y, _pos.z])
+
+        _quat = self.pose.orientation
         try:
-            (_trans,_quat) = self.tf_li.lookupTransform("/camera", "/camera_desired", rospy.Time(0))
-        except Exception as e:
-            return np.zeros(6)
+            _r = Rotation.from_quat(np.array([_quat.x, _quat.y, _quat.z, _quat.w])) # Rotation object from SciPy
+            theta_u = Rotation.as_rotvec(_r)
+        except:
+            print('error in scipy')
+            theta_u = np.array([0,0,0])
 
-        t = _trans
-        print(t)
-        _r = Rotation.from_quat(_quat) # Rotation object from SciPy
-        R = Rotation.as_matrix(_r)
-        theta_u = Rotation.as_rotvec(_r) # use rotation object to convert to angle axis representation
-
-        v_c = -self.lambda_c * (np.matmul(np.transpose(R),t))
+        v_c = -self.lambda_c * (np.subtract(t_0_desired, t_0_current)+np.cross(t_0_current, theta_u))
         w_c = -self.lambda_c * (theta_u)
 
         return np.append(v_c, w_c)

@@ -34,7 +34,7 @@ class IBVSController():
         self.camera_matrix = np.reshape(_camera_matrix, (_camera_matrix_dict['rows'], _camera_matrix_dict['cols']))
         
         _target_str = rospy.get_param("target")
-        _target = np.reshape(np.fromstring(_target_str, dtype=int, sep=','),(4,2))
+        _target = np.reshape(np.fromstring(_target_str, dtype=float, sep=','),(4,2))
         self.target=utils.conv_nparray_2_Point2DArray(utils.conv_norm_2_pix(_target, self.camera_matrix))
 
         self.current_features = None
@@ -181,11 +181,10 @@ class IBVSController():
             self.update_interaction_matrix()
 
             if np.array(self.L == None).any(): # If no interaction matrix is defined, set command velocity to all zeros
-                print(self.L)
                 _vel=np.zeros(6)
                 rospy.logdebug("Interaction Matrix contains None, cmd_vel set to zero")
             else:
-                self.L_inv = np.linalg.pinv(self.L) # pseudonverse of interaction matrix
+                self.L_inv = np.linalg.pinv(self.L) # pseudoinverse of interaction matrix
 
                 _f_x = self.camera_matrix[0,0]
                 _f_y = self.camera_matrix[1,1]
